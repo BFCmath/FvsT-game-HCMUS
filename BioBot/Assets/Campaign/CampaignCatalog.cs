@@ -152,17 +152,17 @@ namespace BioBot
                 "Chương 1 — Cửa Sông Bình Minh: Đợt rác đầu tiên trôi vào mặt bể. Hãy dùng Rái Cá tạo năng lượng và Vịt Bắn Bọt bảo vệ bờ đê!",
                 "Màn 1 chỉ có 2 thẻ: Đặt Rái Cá ở cột trái tạo Năng Lượng, sau đó đặt Vịt Bắn Bọt chặn quái rác!"),
             new LevelSpec(
-                "Bức Tường Mai Xanh", "Màn 2 · Rùa Khiên & Mảnh Vỏ", 125, 2, 100, 45, false, false,
-                "KHÁI NIỆM MỚI: RÙA KHIÊN & BẦY TÚI CHỘP",
-                "• RÙA KHIÊN (🛡 Chắn): Máu siêu trâu, đặt phía trước Vịt để chặn quái rác và phản đòn.\n• MẢNH VỎ: Click trái thu +25 NL, hoặc Chuột phải dựng ngay khiên tạm thời!",
-                "Chương 1 — Bầy Rác Nhựa: Túi Chộp bơi theo bầy rất nhanh! Hãy mở khóa Rùa Khiên chắn đầu hàng để Vịt Bắn Bọt có thời gian tiêu diệt.",
-                "Đặt Rùa Khiên phía trước Vịt Bắn Bọt. Rác Mảnh Vỏ có thể thu lấy NL hoặc chuột phải biến thành khiên!"),
+                "Bức Tường & Đáy Sâu", "Màn 2 · Rùa Khiên & Đáy Biển (Q)", 150, 2, 70, 45, false, true,
+                "KHÁI NIỆM MỚI: RÙA KHIÊN & ĐÁY BIỂN NGỘP NƯỚC",
+                "• RÙA KHIÊN (🛡 Chắn): Mai siêu cứng chặn quái rác.\n• Bấm Q để LẶN xuống Đáy Biển! Quái dưới đáy ô nhiễm nặng nên TRÂU HƠN +40% MÁU.\n• Bạn CÓ THỂ đặt Vịt hoặc Rùa xuống Đáy khi khẩn cấp, nhưng chúng không phải loài sống ở đáy nên sẽ NGỘP NƯỚC & mất máu dần!",
+                "Chương 1 — Thử Thách Đáy Sâu: Đáy bể đã mở! Chưa có sinh vật đáy bản địa — hãy dùng Rùa Khiên & Vịt lặn xuống cầm cự tạm thời!",
+                "Bấm Q để lặn/nổi. Vịt & Rùa đặt xuống Đáy sẽ mất máu dần (O₂↓) — hãy giữ nhịp cho đến khi giải cứu được sinh vật đáy ở Màn 3!"),
             new LevelSpec(
-                "Lặn Xuống Đáy Sâu", "Màn 3 · Mở khóa Đáy Biển (Q)", 150, 2, 60, 55, false, true,
-                "KHÁI NIỆM MỚI: ĐÁY BIỂN Ô NHIỄM & PHÍM Q",
-                "• Bấm phím Q để LẶN xuống Đáy Biển hoặc NỔI lên Mặt Nước (chỉ được đặt đồng minh ở tầng Bio-Bot đang đứng!).\n• ĐÁY BIỂN ô nhiễm nặng hơn → Quái dưới đáy TRÂU HƠN +40% MÁU!\n• Lặn xuống click cắt Dây Cước để CỨU Cá Xạ Thủ miễn phí và thả Bạch Tuộc làm chậm Mặt Nước!",
-                "Chương 1 — Tầng Đáy Ô Nhiễm: Bể 3D mở khóa mặt đáy! Tầng không có Bio-Bot sẽ bị mờ. Bấm Q để lặn xuống cứu cá và trấn giữ đáy bể!",
-                "Bấm Q để lặn/nổi. Tầng Đáy có quái trâu hơn +40% máu — hãy cứu Cá Xạ Thủ và đặt Bạch Tuộc hỗ trợ lên trên!"),
+                "Cá Xạ Thủ Đáy Biển", "Màn 3 · Sinh vật đáy bản địa", 175, 2, 58, 55, false, true,
+                "KHÁI NIỆM MỚI: CÁ XẠ THỦ (BẮN ĐẨY LÙI) & BẠCH TUỘC",
+                "• CÁ XẠ THỦ (75 NL · 💥 Bắn Đẩy): Sống bản địa dưới Đáy Biển (không bị ngộp nước, KHÔNG thể đặt lên Mặt Nước!). Đạn bọt cực mạnh + ĐẨY LÙI quái trâu dưới đáy!\n• Click cắt DÂY CƯỚC dưới đáy để cứu miễn phí 1 Cá Xạ Thủ!\n• BẠCH TUỘC (❄ Chậm ↑): Đặt dưới Đáy làm chậm quái Mặt Nước!",
+                "Chương 1 — Chúa Tể Đáy Sâu: Cá Xạ Thủ bản địa đã sẵn sàng! Không còn lo ngộp nước — sức bắn đẩy lùi của chúng là khắc tinh của quái đáy trâu bò!",
+                "Bấm Q lặn xuống cứu Cá Xạ Thủ từ Dây Cước. Cá Xạ Thủ (75 NL) bắn mạnh & đẩy lùi quái đáy, nhưng không sống được trên Mặt Nước!"),
             new LevelSpec(
                 "Hải Lưu Phá Giáp", "Màn 4 · Lon Kén & Tôm Súng", 175, 3, 55, 65, false, true,
                 "KHÁI NIỆM MỚI: GIÁP SẮT & TÔM SÚNG PHÁ GIÁP",
@@ -211,12 +211,12 @@ namespace BioBot
         public static readonly AllySpec[] Allies =
         {
             // Stage 1 (0..1): ONLY Rái Cá & Vịt Bắn Bọt!
-            new AllySpec("Rái Cá", "Tạo năng lượng", "☀ +25 NL", B, L, Ability.Income, 50, 6, 1, 25, 4.8f, "Tự thả Hạt Vàng +25 NL. Đặt được ở cả 2 tầng!"),
-            new AllySpec("Vịt Bắn Bọt", "Bắn tia nước", "● Bắn Mặt", S, L, Ability.Shot, 50, 7, 1, 2, 4.2f, "Phun tia nước dọc hàng Mặt Nước tiêu diệt quái rác."),
+            new AllySpec("Rái Cá", "Tạo năng lượng", "☀ +25 NL", B, L, Ability.Income, 50, 6, 1, 25, 4.8f, "Tự thả Hạt Vàng +25 NL. Sống khỏe ở cả 2 tầng!"),
+            new AllySpec("Vịt Bắn Bọt", "Bắn tia nước", "● Bắn Mặt", S, L, Ability.Shot, 50, 7, 1, 2, 4.2f, "Bắn dọc hàng Mặt Nước. Có thể đặt khẩn cấp xuống Đáy nhưng sẽ ngộp nước & mất máu dần!"),
             // Stage 2 (2): Rùa Khiên!
-            new AllySpec("Rùa Khiên", "Tường chắn", "🛡 Chắn", S, L, Ability.Guard, 50, 24, 2, 1, 9.5f, "Mai rùa siêu cứng chặn đứng quái rác ở Mặt Nước, phản đòn khi bị cắn."),
-            // Stage 3 (3..4): Deep opens — Cá Xạ Thủ & Bạch Tuộc!
-            new AllySpec("Cá Xạ Thủ", "Bắn bọt đáy", "● Bắn Đáy", D, L, Ability.Shot, 50, 8, 3, 2, 4.2f, "Bắn bọt dọc hàng Đáy Biển. Cắt Dây Cước để cứu miễn phí!"),
+            new AllySpec("Rùa Khiên", "Tường chắn", "🛡 Chắn", S, L, Ability.Guard, 50, 24, 2, 1, 9.5f, "Mai rùa siêu cứng chặn quái. Đặt xuống Đáy sẽ bị ngộp nước & mất máu dần!"),
+            // Stage 3 (3..4): Native Deep — Cá Xạ Thủ (Special Knockback + Stronger + 75 NL!) & Bạch Tuộc!
+            new AllySpec("Cá Xạ Thủ", "Bắn đẩy Đáy", "💥 Bắn Đẩy", D, L, Ability.Shot, 75, 10, 3, 3, 5.2f, "Bản địa Đáy Biển (KHÔNG sống trên Mặt!). Đạn bọt mạnh + ĐẨY LÙI quái trâu dưới đáy!"),
             new AllySpec("Bạch Tuộc", "Hãm Mặt Nước", "❄ Chậm ↑", D, O, Ability.Slow, 75, 9, 3, 3, 6.0f, "Đặt dưới Đáy: vươn xúc tu lên làm chậm quái rác ở Mặt Nước!"),
             // Stage 4 (5..6)
             new AllySpec("Tôm Súng", "Phá giáp", "⚡ Phá Giáp", D, L, Ability.Zap, 100, 9, 4, 3, 6.0f, "Búng càng siêu âm dưới Đáy, đập vỡ giáp sắt Lon Kén!"),
@@ -246,7 +246,7 @@ namespace BioBot
         {
             new EnemySpec("Váng Quệt", S, Trait.Skim, 8, .36f, 1, 10, "Quái mặt nước cơ bản, tăng tốc khi qua Váng Dầu."),
             new EnemySpec("Túi Chộp", S, Trait.School, 7, .43f, 2, 10, "Bơi nhanh hơn khi đi theo bầy cùng hàng."),
-            new EnemySpec("Mạt Cào", D, Trait.Burrow, 11, .34f, 3, 12, "Bò sát Đáy Biển, trâu hơn +40% máu & giảm đòn thường."),
+            new EnemySpec("Mạt Cào", D, Trait.Burrow, 11, .34f, 2, 12, "Bò sát Đáy Biển, trâu hơn +40% máu & giảm đòn thường."),
             new EnemySpec("Lon Kén", B, Trait.Shell, 16, .30f, 4, 15, "Giáp sắt giảm sát thương cho tới khi bị Tôm Súng / Xung phá vỡ."),
             new EnemySpec("Bè Hai Mạn", B, Trait.Ferry, 15, .34f, 5, 18, "Lặn hoặc nổi bất ngờ sang tầng kia ở giữa bể!"),
             new EnemySpec("Lọc Bẩn", D, Trait.Filter, 16, .31f, 6, 16, "Quái đáy siêu lì, tự hồi máu theo nhịp."),

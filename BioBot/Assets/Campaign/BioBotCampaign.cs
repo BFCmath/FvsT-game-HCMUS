@@ -413,7 +413,7 @@ namespace BioBot
             if (!match.DeepEnabled)
             {
                 Fill(new Rect(18, 224, 608, 128), new Color(0.03f, 0.08f, 0.14f, 0.72f));
-                Label(60, 276, 520, 24, "🌊 ĐÁY BIỂN Ô NHIỄM (Mở khóa từ Màn 3 — Bấm Q để lặn!)", smallCenter, Cyan);
+                Label(60, 276, 520, 24, "🌊 ĐÁY BIỂN Ô NHIỄM (Mở khóa từ Màn 2 — Bấm Q để lặn!)", smallCenter, Cyan);
             }
             else if (match.RobotLayer == Layer.Surface)
             {
@@ -554,10 +554,13 @@ namespace BioBot
                         if (isActive)
                         {
                             Color tint = ally.HurtAnim > 0f ? new Color(1f, 0.72f, 0.72f, 1f)
+                                : ally.Draining ? new Color(0.76f, 0.88f, 1f, 1f)
                                 : ally.Jammed > 0f ? new Color(0.75f, 0.65f, 1f, 1f) : Color.white;
                             DrawAllySprite(ally.Spec, ar, ally.FireAnim > 0f ? 12 : 5, c + r, tint);
+                            if (ally.Draining)
+                                Label(p.x - 16, p.y - 17, 32, 11, "O₂↓", smallCenter, new Color(1f, 0.72f, 0.35f, 1f));
                             if (ally.Health < ally.MaxHealth)
-                                Bar(new Rect(p.x - 11, p.y + 9, 22, 3), ally.Health / (float)ally.MaxHealth, Green);
+                                Bar(new Rect(p.x - 11, p.y + 9, 22, 3), ally.Health / (float)ally.MaxHealth, ally.Draining ? Gold : Green);
                         }
                         else
                         {

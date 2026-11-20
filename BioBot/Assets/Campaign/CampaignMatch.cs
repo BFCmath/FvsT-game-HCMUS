@@ -18,8 +18,9 @@ namespace BioBot
         {
             public readonly int Spec;
             public int Health, MaxHealth;
-            public float Cooldown, Jammed, Temporary, PlantPop, FireAnim, HurtAnim, Phase;
-            public Ally(int spec, int health, float temporary = 0f, float phase = 0f)
+            public float Cooldown, Jammed, Temporary, PlantPop, FireAnim, HurtAnim, Phase, DrainTimer;
+            public bool Draining;
+            public Ally(int spec, int health, float temporary = 0f, float phase = 0f, bool draining = false)
             {
                 Spec = spec;
                 Health = MaxHealth = health;
@@ -27,6 +28,8 @@ namespace BioBot
                 PlantPop = 0.34f;
                 Cooldown = 0.55f;
                 Phase = phase;
+                Draining = draining;
+                DrainTimer = 2.6f;
             }
         }
 
@@ -398,11 +401,15 @@ namespace BioBot
                 Trash[(int)layer, row, col] = new Waste(id, (float)rng.NextDouble() * 6.28f);
         }
 
+        // Basic surface creatures (Vịt = 1, Rùa = 2) can be placed underwater in emergencies, but lose HP gradually!
+        public static bool IsEmergencyDeepPlacement(int allyId, Layer layer) =>
+            layer == Layer.Deep && (allyId == 1 || allyId == 2);
+
         public bool CanPlant(int id, Layer layer, int row, int col, out string reason)
         {
             reason = null;
             if (Ended || id < 0 || id >= CampaignCatalog.Allies.Length) return false;
-            if (layer == Layer.Deep && !DeepEnabled) { reason = "Đáy Biển mở từ Màn 3!"; return false; }
+            if (layer == Layer.Deep && !DeepEnabled) { reason = "Đáy Biển mở từ Màn 2!"; return false; }
             if (layer != RobotLayer)
             {
                 reason = layer == Layer.Deep ? "Bấm Q để lặn xuống Đáy Biển trước khi đặt!" : "Bấm Q để nổi lên Mặt Nước trước khi đặt!";
@@ -411,9 +418,12 @@ namespace BioBot
             var spec = CampaignCatalog.Allies[id];
             if (!Endless && spec.Unlock > Level) { reason = "Chưa mở khóa."; return false; }
             if (CardCooldowns[id] > 0f) { reason = "Thẻ đang hồi chiêu."; return false; }
-            if (!CampaignCatalog.Fits(spec.Habitat, layer))
+            bool emergencyDeep = IsEmergencyDeepPlacement(id, layer);
+            if (!CampaignCatalog.Fits(spec.Habitat, layer) && !emergencyDeep)
             {
-                reason = spec.Habitat == Habitat.Deep ? $"{spec.Name} chỉ sống ở Đáy Biển (bấm Q lặn xuống)!" : $"{spec.Name} chỉ sống ở Mặt Nước (bấm Q nổi lên)!";
+                reason = spec.Habitat == Habitat.Deep
+                    ? $"{spec.Name} là sinh vật đáy — KHÔNG thể sống trên Mặt Nước!"
+                    : $"{spec.Name} chỉ sống ở Mặt Nước (bấm Q nổi lên)!";
                 return false;
             }
             if (Allies[(int)layer, row, col] != null || Trash[(int)layer, row, col] != null)
@@ -430,21 +440,25 @@ namespace BioBot
                 return false;
             }
             var spec = CampaignCatalog.Allies[id];
+            bool emergencyDeep = IsEmergencyDeepPlacement(id, layer);
             Energy -= spec.Cost;
             float rechargeMult = Mathf.Max(0.45f, 1f - progress.UpgradeLevel(5) * 0.15f);
             CardCooldowns[id] = spec.Recharge * rechargeMult;
-            Allies[(int)layer, row, col] = new Ally(id, spec.Health, 0f, (float)rng.NextDouble() * 6.28f);
+            Allies[(int)layer, row, col] = new Ally(id, spec.Health, 0f, (float)rng.NextDouble() * 6.28f, emergencyDeep);
 
             Vector2 px = CellToPixel(layer, col, row);
             OnSfx?.Invoke(SfxId.Plant);
-            OnBurst?.Invoke(layer, px, new Color(0.55f, 0.95f, 0.72f, 1f), 9);
+            OnBurst?.Invoke(layer, px, emergencyDeep ? new Color(0.75f, 0.7f, 1f, 1f) : new Color(0.55f, 0.95f, 0.72f, 1f), 9);
             OnRing?.Invoke(layer, px, new Color(0.6f, 1f, 0.85f, 0.9f), 28f);
-            OnFloatText?.Invoke(layer, px - new Vector2(0, 10), spec.Name, new Color(0.75f, 1f, 0.88f, 1f));
+            OnFloatText?.Invoke(layer, px - new Vector2(0, 10), emergencyDeep ? $"{spec.Name} (O₂↓)" : spec.Name,
+                emergencyDeep ? new Color(1f, 0.75f, 0.45f, 1f) : new Color(0.75f, 1f, 0.88f, 1f));
             if (spec.Ability == Ability.Income) PlantedIncomeCount++;
             else PlantedFighterCount++;
             if (spec.Reach != Reach.Local) OnAchievement?.Invoke("cross_layer");
             AddEcoProgress(4f, 0);
-            Say("Đã triệu hồi " + spec.Name + "!", 2f);
+            Say(emergencyDeep
+                ? $"{spec.Name} đặt xuống Đáy sẽ bị ngộp nước & mất máu dần!"
+                : "Đã triệu hồi " + spec.Name + "!", 2.5f);
             return true;
         }
 
@@ -989,6 +1003,26 @@ namespace BioBot
                 if (ally.Temporary <= 0f) { Allies[side, row, col] = null; return; }
             }
 
+            // Surface creatures placed underwater lose oxygen / take gradual HP drain!
+            if (ally.Draining)
+            {
+                ally.DrainTimer -= delta;
+                if (ally.DrainTimer <= 0f)
+                {
+                    ally.DrainTimer = 2.6f;
+                    ally.Health--;
+                    ally.HurtAnim = 0.15f;
+                    Vector2 px = CellToPixel(layer, col, row);
+                    OnBurst?.Invoke(layer, px, new Color(0.65f, 0.85f, 1f, 0.9f), 4);
+                    if (ally.Health <= 0)
+                    {
+                        Allies[side, row, col] = null;
+                        OnFloatText?.Invoke(layer, px, "NGỘP NƯỚC!", new Color(1f, 0.5f, 0.45f, 1f));
+                        return;
+                    }
+                }
+            }
+
             ally.Jammed = Mathf.Max(0f, ally.Jammed - delta);
             float rateMult = (ally.Jammed > 0f ? 0.45f : 1f) * (IsEcoSurge ? 1.95f : 1f);
             if (layer == Layer.Surface && HasUpdraftAt(row, col)) rateMult *= 1.55f;
@@ -1099,18 +1133,21 @@ namespace BioBot
                 _ => target == Layer.Deep ? ProjectileKind.Bubble : ProjectileKind.Seed
             };
 
+            // Cá Xạ Thủ (spec == 3 / native Deep bubble shooter) deals heavier damage AND knocks back tanky underwater monsters!
+            bool isArcherfish = spec.Habitat == Habitat.Deep && spec.Ability == Ability.Shot && spec.Reach == Reach.Local;
+
             Projectiles.Add(new Projectile
             {
                 Layer = target,
                 Row = row,
                 X = col + 0.35f,
-                Speed = kind == ProjectileKind.Zap ? 7.6f : kind == ProjectileKind.Spear ? 6.8f : 5.6f,
+                Speed = kind == ProjectileKind.Zap ? 7.6f : kind == ProjectileKind.Spear ? 6.8f : 5.8f,
                 Damage = spec.Ability == Ability.Slow ? 1 : power,
                 PierceLeft = spec.Ability == Ability.Pierce ? 2 : 1,
                 Kind = kind,
                 Pulse = spec.Ability is Ability.Zap or Ability.Echo or Ability.Reflect,
                 Slow = spec.Ability == Ability.Slow,
-                Push = spec.Ability == Ability.Pull
+                Push = spec.Ability == Ability.Pull || isArcherfish
             });
 
             if (from != target)
