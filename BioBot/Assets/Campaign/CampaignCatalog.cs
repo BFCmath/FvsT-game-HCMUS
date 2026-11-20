@@ -158,11 +158,11 @@ namespace BioBot
                 "Chương 1 — Thử Thách Đáy Sâu: Đáy bể đã mở! Chưa có sinh vật đáy bản địa — hãy dùng Rùa Khiên & Vịt lặn xuống cầm cự tạm thời!",
                 "Bấm Q để lặn/nổi. Vịt & Rùa đặt xuống Đáy sẽ mất máu dần (O₂↓) — hãy giữ nhịp cho đến khi giải cứu được sinh vật đáy ở Màn 3!"),
             new LevelSpec(
-                "Cá Xạ Thủ Đáy Biển", "Màn 3 · Sinh vật đáy bản địa", 175, 2, 58, 55, false, true,
-                "KHÁI NIỆM MỚI: CÁ XẠ THỦ (BẮN ĐẨY LÙI) & BẠCH TUỘC",
-                "• CÁ XẠ THỦ (75 NL · 💥 Bắn Đẩy): Sống bản địa dưới Đáy Biển (không bị ngộp nước, KHÔNG thể đặt lên Mặt Nước!). Đạn bọt cực mạnh + ĐẨY LÙI quái trâu dưới đáy!\n• Click cắt DÂY CƯỚC dưới đáy để cứu miễn phí 1 Cá Xạ Thủ!\n• BẠCH TUỘC (❄ Chậm ↑): Đặt dưới Đáy làm chậm quái Mặt Nước!",
-                "Chương 1 — Chúa Tể Đáy Sâu: Cá Xạ Thủ bản địa đã sẵn sàng! Không còn lo ngộp nước — sức bắn đẩy lùi của chúng là khắc tinh của quái đáy trâu bò!",
-                "Bấm Q lặn xuống cứu Cá Xạ Thủ từ Dây Cước. Cá Xạ Thủ (75 NL) bắn mạnh & đẩy lùi quái đáy, nhưng không sống được trên Mặt Nước!"),
+                "Cá Xạ Thủ Đáy Biển", "Màn 3 · Cá Xạ Thủ, Bạch Tuộc & Bè Lặn", 175, 2, 58, 55, false, true,
+                "KHÁI NIỆM MỚI: CÁ XẠ THỦ, BẠCH TUỘC 2 TẦNG & BÈ HAI MẠN",
+                "• CÁ XẠ THỦ (75 NL · 💥 Bắn Choáng): Bản địa Đáy Biển (KHÔNG đặt được trên Mặt!). Bắn mạnh, đẩy nhẹ & làm choáng ngắn quái đáy!\n• BẠCH TUỘC (❄ Chậm 2T): Đặt được CẢ 2 TẦNG, vươn xúc tu làm chậm tầng đối diện!\n• BÈ HAI MẠN: Đi tới ô thứ 3 từ mép phải sẽ bất ngờ LẶN XUỐNG Đáy Biển!",
+                "Chương 1 — Chúa Tể Đáy Sâu: Cá Xạ Thủ bản địa và Bạch Tuộc 2 tầng đã sẵn sàng đối phó Bè Hai Mạn lặn bất ngờ!",
+                "Bấm Q lặn xuống cứu Cá Xạ Thủ từ Dây Cước. Cẩn thận Bè Hai Mạn sẽ lặn xuống đáy ngay ở cột thứ 3 từ bên phải!"),
             new LevelSpec(
                 "Hải Lưu Phá Giáp", "Màn 4 · Lon Kén & Tôm Súng", 175, 3, 55, 65, false, true,
                 "KHÁI NIỆM MỚI: GIÁP SẮT & TÔM SÚNG PHÁ GIÁP",
@@ -215,9 +215,9 @@ namespace BioBot
             new AllySpec("Vịt Bắn Bọt", "Bắn tia nước", "● Bắn Mặt", S, L, Ability.Shot, 50, 7, 1, 2, 4.2f, "Bắn dọc hàng Mặt Nước. Có thể đặt khẩn cấp xuống Đáy nhưng sẽ ngộp nước & mất máu dần!"),
             // Stage 2 (2): Rùa Khiên!
             new AllySpec("Rùa Khiên", "Tường chắn", "🛡 Chắn", S, L, Ability.Guard, 50, 24, 2, 1, 9.5f, "Mai rùa siêu cứng chặn quái. Đặt xuống Đáy sẽ bị ngộp nước & mất máu dần!"),
-            // Stage 3 (3..4): Native Deep — Cá Xạ Thủ (Special Knockback + Stronger + 75 NL!) & Bạch Tuộc!
-            new AllySpec("Cá Xạ Thủ", "Bắn đẩy Đáy", "💥 Bắn Đẩy", D, L, Ability.Shot, 75, 10, 3, 3, 5.2f, "Bản địa Đáy Biển (KHÔNG sống trên Mặt!). Đạn bọt mạnh + ĐẨY LÙI quái trâu dưới đáy!"),
-            new AllySpec("Bạch Tuộc", "Hãm Mặt Nước", "❄ Chậm ↑", D, O, Ability.Slow, 75, 9, 3, 3, 6.0f, "Đặt dưới Đáy: vươn xúc tu lên làm chậm quái rác ở Mặt Nước!"),
+            // Stage 3 (3..4): Native Deep — Cá Xạ Thủ (Micro-knockback + brief stun, 75 NL!) & Bạch Tuộc (BOTH layers!)
+            new AllySpec("Cá Xạ Thủ", "Bắn choáng Đáy", "💥 Bắn Choáng", D, L, Ability.Shot, 75, 10, 3, 3, 5.2f, "Bản địa Đáy Biển (KHÔNG sống trên Mặt!). Bắn mạnh, đẩy nhẹ & làm choáng chớp nhoáng quái đáy!"),
+            new AllySpec("Bạch Tuộc", "Hãm tầng kia", "❄ Chậm 2T", B, O, Ability.Slow, 75, 9, 3, 3, 6.0f, "Đặt được CẢ 2 TẦNG: vươn xúc tu sang tầng đối diện để làm chậm quái rác!"),
             // Stage 4 (5..6)
             new AllySpec("Tôm Súng", "Phá giáp", "⚡ Phá Giáp", D, L, Ability.Zap, 100, 9, 4, 3, 6.0f, "Búng càng siêu âm dưới Đáy, đập vỡ giáp sắt Lon Kén!"),
             new AllySpec("Cò Hồi Máu", "Hồi máu Đáy", "✚ Hồi ↓", S, O, Ability.Repair, 75, 8, 4, 4, 6.5f, "Đặt trên Mặt: lặn mỏ xuống hồi máu cho đồng minh ô Đáy bên dưới!"),
@@ -248,7 +248,7 @@ namespace BioBot
             new EnemySpec("Túi Chộp", S, Trait.School, 7, .43f, 2, 10, "Bơi nhanh hơn khi đi theo bầy cùng hàng."),
             new EnemySpec("Mạt Cào", D, Trait.Burrow, 11, .34f, 2, 12, "Bò sát Đáy Biển, trâu hơn +40% máu & giảm đòn thường."),
             new EnemySpec("Lon Kén", B, Trait.Shell, 16, .30f, 4, 15, "Giáp sắt giảm sát thương cho tới khi bị Tôm Súng / Xung phá vỡ."),
-            new EnemySpec("Bè Hai Mạn", B, Trait.Ferry, 15, .34f, 5, 18, "Lặn hoặc nổi bất ngờ sang tầng kia ở giữa bể!"),
+            new EnemySpec("Bè Hai Mạn", B, Trait.Ferry, 14, .34f, 3, 18, "Đi tới ô thứ 3 từ phải sang rồi LẶN NGAY xuống Đáy Biển (hoặc nổi lên)!"),
             new EnemySpec("Lọc Bẩn", D, Trait.Filter, 16, .31f, 6, 16, "Quái đáy siêu lì, tự hồi máu theo nhịp."),
             new EnemySpec("Phao Hắc", S, Trait.Spill, 16, .33f, 7, 18, "Vỡ tung để lại Váng Dầu cản đường khi bị hạ."),
             new EnemySpec("Ống Rè", D, Trait.Jam, 17, .30f, 7, 18, "Gây nhiễu làm chậm đồng minh ở tầng đối diện."),

@@ -638,6 +638,7 @@ namespace BioBot
                 {
                     if (layer == Layer.Deep) DrawCircle(p, baseSz * 0.85f, new Color(0.55f, 0.18f, 0.65f, 0.22f)); // Contaminated aura!
                     Color tint = e.Flash > 0f ? new Color(1f, 0.55f, 0.45f, 1f)
+                        : e.Stun > 0f ? new Color(1f, 0.94f, 0.55f, 1f)
                         : e.Slow > 0f ? new Color(0.62f, 0.88f, 1f, 1f) : Color.white;
                     DrawSprite(20 + e.Spec, er, e.Slow > 0f ? 4 : 8, e.Row, tint);
                     float bw = eSpec.Trait == Trait.Boss ? 40f : 22f;

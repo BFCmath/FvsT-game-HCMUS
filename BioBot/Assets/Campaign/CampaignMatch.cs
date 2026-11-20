@@ -46,8 +46,8 @@ namespace BioBot
             public readonly int Spec;
             public Layer Layer;
             public int Row, Health, MaxHealth;
-            public float X, Attack, Slow, Recovery, Flash, BossTimer, BiteAnim, HurtAnim, WalkPhase;
-            public bool Shifted, Broken, Small;
+            public float X, Attack, Slow, Stun, Recovery, Flash, BossTimer, ActionTimer, BiteAnim, HurtAnim, WalkPhase;
+            public bool Shifted, Broken, Small, Charged;
 
             public Enemy(int spec, Layer layer, int row, float x, int health, bool small = false, float walkPhase = 0f)
             {
@@ -58,6 +58,7 @@ namespace BioBot
                 Health = MaxHealth = health;
                 Small = small;
                 BossTimer = 9f;
+                ActionTimer = 4.5f;
                 WalkPhase = walkPhase;
             }
         }
@@ -68,7 +69,7 @@ namespace BioBot
             public int Row, Damage, PierceLeft;
             public float X, Speed, Age;
             public ProjectileKind Kind;
-            public bool Pulse, Slow, Push;
+            public bool Pulse, Slow, Push, MicroStun;
             public readonly HashSet<Enemy> Hit = new HashSet<Enemy>();
         }
 
@@ -109,6 +110,7 @@ namespace BioBot
             public float Time;
             public int Wave, Spec, Row;
             public Layer Layer;
+            public bool HugeWave;
         }
 
         public readonly Ally[,,] Allies = new Ally[2, Rows, Columns];
@@ -303,10 +305,9 @@ namespace BioBot
             }
         }
 
-        // Engaging, balanced PvZ pacing with gradual Stage 1->10 escalation
+        // Handcrafted PvZ-style stage pacing: gentle opening probes -> tactical mid -> FLAGGED HUGE WAVES!
         private void CreateCampaignArrivals()
         {
-            float start = Level == 1 ? 10f : 8.5f;
             var eligible = new List<int>();
             for (int i = 0; i < CampaignCatalog.Enemies.Length; i++)
             {
@@ -315,11 +316,63 @@ namespace BioBot
                     eligible.Add(i);
             }
 
+            void Add(float t, int wave, int spec, Layer layer, int row, bool huge = false) =>
+                arrivals.Add(new Arrival { Time = t, Wave = wave, Spec = spec, Layer = layer, Row = Mathf.Clamp(row, 0, Rows - 1), HugeWave = huge });
+
+            if (Level == 1)
+            {
+                // Stage 1: Clean Surface intro -> Huge Wave finale!
+                Add(10f, 1, 0, Layer.Surface, 2);
+                Add(16f, 1, 0, Layer.Surface, 1);
+                Add(22f, 1, 0, Layer.Surface, 3);
+                // HUGE WAVE!
+                Add(31f, 2, 0, Layer.Surface, 0, true);
+                Add(32.5f, 2, 0, Layer.Surface, 2);
+                Add(34.2f, 2, 0, Layer.Surface, 4);
+                Add(36.0f, 2, 0, Layer.Surface, 1);
+                return;
+            }
+            if (Level == 2)
+            {
+                // Stage 2: Fair, balanced intro to Rùa Khiên + Deep (+40% HP) + Oxygen Drain (NOT overwhelming!)
+                Add(9.5f, 1, 0, Layer.Surface, 2);
+                Add(15.5f, 1, 1, Layer.Surface, 1);
+                Add(21.5f, 1, 2, Layer.Deep, 2); // First Deep probe!
+                Add(28.0f, 1, 1, Layer.Surface, 3);
+                // HUGE WAVE (manageable 5 enemies across Surface + Deep)
+                Add(38.0f, 2, 1, Layer.Surface, 0, true);
+                Add(39.8f, 2, 2, Layer.Deep, 3);
+                Add(41.5f, 2, 0, Layer.Surface, 2);
+                Add(43.5f, 2, 1, Layer.Surface, 4);
+                Add(45.5f, 2, 2, Layer.Deep, 1);
+                return;
+            }
+            if (Level == 3)
+            {
+                // Stage 3: Cá Xạ Thủ + Bạch Tuộc 2T + Early Diver (Bè Hai Mạn diving at 3rd col from right!)
+                Add(9.0f, 1, 0, Layer.Surface, 1);
+                Add(14.5f, 1, 4, Layer.Surface, 2); // Bè Hai Mạn -> dives at col 8!
+                Add(20.0f, 1, 2, Layer.Deep, 3);
+                Add(25.5f, 1, 4, Layer.Surface, 0);
+                Add(30.0f, 1, 1, Layer.Surface, 4);
+                // HUGE WAVE!
+                Add(40.0f, 2, 4, Layer.Surface, 2, true);
+                Add(41.4f, 2, 2, Layer.Deep, 1);
+                Add(42.8f, 2, 1, Layer.Surface, 3);
+                Add(44.5f, 2, 4, Layer.Surface, 4);
+                Add(46.2f, 2, 2, Layer.Deep, 0);
+                Add(48.0f, 2, 0, Layer.Surface, 2);
+                return;
+            }
+
+            // Stages 4..10: Structured Escalation with Clear Flagged Huge Waves!
+            float tCur = 8.5f;
+            var introduced = eligible.FindAll(id => CampaignCatalog.Enemies[id].Unlock == Level);
             for (int wave = 1; wave <= Rules.Waves; wave++)
             {
-                var introduced = eligible.FindAll(id => CampaignCatalog.Enemies[id].Unlock == Level);
-                int count = Level == 1 ? (3 + wave) : (4 + Level / 2 + wave * 2);
-                float spacing = Mathf.Max(1.65f, 3.2f - Level * 0.14f);
+                bool isHuge = wave >= 2;
+                int count = isHuge ? (5 + Level / 2 + wave) : (4 + Level / 3);
+                float spacing = isHuge ? Mathf.Max(1.35f, 2.3f - Level * 0.08f) : 3.2f;
                 for (int n = 0; n < count; n++)
                 {
                     int spec = (n < introduced.Count && wave == 1)
@@ -328,22 +381,13 @@ namespace BioBot
                     Habitat hab = CampaignCatalog.Enemies[spec].Habitat;
                     Layer target = (!DeepEnabled || rng.Next(100) < Rules.SurfaceWeight) ? Layer.Surface : Layer.Deep;
                     if (DeepEnabled && !CampaignCatalog.Fits(hab, target)) target = CampaignCatalog.Opposite(target);
-                    int row = (Level == 1 && wave == 1 && n < 2) ? 2 : rng.Next(Rows);
-                    arrivals.Add(new Arrival { Time = start + n * spacing, Wave = wave, Spec = spec, Row = row, Layer = target });
+                    Add(tCur + n * spacing, wave, spec, target, rng.Next(Rows), isHuge && n == 0);
                 }
 
                 if (Rules.HasBoss && wave == Rules.Waves)
-                {
-                    arrivals.Add(new Arrival
-                    {
-                        Time = start + count * spacing + 2.0f,
-                        Wave = wave,
-                        Spec = CampaignCatalog.Enemies.Length - 1,
-                        Row = 2,
-                        Layer = Layer.Surface
-                    });
-                }
-                start += count * spacing + 11f;
+                    Add(tCur + count * spacing + 2.0f, wave, CampaignCatalog.Enemies.Length - 1, Layer.Surface, 2, true);
+
+                tCur += count * spacing + (isHuge ? 13f : 10f);
             }
         }
 
@@ -853,9 +897,12 @@ namespace BioBot
                     Energy += 25;
                     OnSfx?.Invoke(SfxId.WaveHorn);
                     string banner = (Rules.HasBoss && !Endless && Wave == Rules.Waves)
-                        ? "CẢNH BÁO ĐỎ: TÀU XẢ ĐỘC XUẤT HIỆN!"
-                        : $"ĐỢT {Wave}{(Endless ? "" : "/" + Rules.Waves)} ĐANG TIẾN VÀO!";
+                        ? "🚨 CẢNH BÁO ĐỎ: SIÊU TÀU XẢ ĐỘC XUẤT HIỆN!"
+                        : arrival.HugeWave
+                            ? $"🚩 ĐỢT TẤN CÔNG LỚN ({Wave}/{(Endless ? "∞" : Rules.Waves.ToString())}) ĐANG TRÀN TỚI!"
+                            : $"ĐỢT {Wave}{(Endless ? "" : "/" + Rules.Waves)} BẮT ĐẦU!";
                     OnWaveBanner?.Invoke(banner);
+                    if (arrival.HugeWave) OnShake?.Invoke(0.24f, 3.5f);
                     if (Endless && Wave >= 5) OnAchievement?.Invoke("endless_5");
                 }
                 var eSpec = CampaignCatalog.Enemies[arrival.Spec];
@@ -1133,7 +1180,7 @@ namespace BioBot
                 _ => target == Layer.Deep ? ProjectileKind.Bubble : ProjectileKind.Seed
             };
 
-            // Cá Xạ Thủ (spec == 3 / native Deep bubble shooter) deals heavier damage AND knocks back tanky underwater monsters!
+            // Cá Xạ Thủ (native Deep bubble shooter) deals heavier damage with gentle micro-knockback + brief stun!
             bool isArcherfish = spec.Habitat == Habitat.Deep && spec.Ability == Ability.Shot && spec.Reach == Reach.Local;
 
             Projectiles.Add(new Projectile
@@ -1147,7 +1194,8 @@ namespace BioBot
                 Kind = kind,
                 Pulse = spec.Ability is Ability.Zap or Ability.Echo or Ability.Reflect,
                 Slow = spec.Ability == Ability.Slow,
-                Push = spec.Ability == Ability.Pull || isArcherfish
+                Push = spec.Ability == Ability.Pull,
+                MicroStun = isArcherfish
             });
 
             if (from != target)
@@ -1175,9 +1223,14 @@ namespace BioBot
                         p.Hit.Add(e);
                         Damage(e, p.Damage, p.Pulse);
                         if (p.Slow) e.Slow = Mathf.Max(e.Slow, 3.0f);
-                        if (p.Push && CampaignCatalog.Enemies[e.Spec].Trait != Trait.Anchor &&
-                            CampaignCatalog.Enemies[e.Spec].Trait != Trait.Boss)
-                            e.X = Mathf.Min(Columns - 0.2f, e.X + 0.6f);
+                        var eTrait = CampaignCatalog.Enemies[e.Spec].Trait;
+                        if (p.Push && eTrait != Trait.Anchor && eTrait != Trait.Boss)
+                            e.X = Mathf.Min(Columns - 0.2f, e.X + 0.48f);
+                        if (p.MicroStun && eTrait != Trait.Anchor && eTrait != Trait.Boss)
+                        {
+                            e.X = Mathf.Min(Columns - 0.2f, e.X + 0.14f);
+                            e.Stun = Mathf.Max(e.Stun, 0.32f);
+                        }
 
                         Vector2 hitPx = CellToPixel(p.Layer, e.X, e.Row);
                         Color burstCol = p.Kind == ProjectileKind.Zap ? new Color(1f, 0.92f, 0.45f, 1f) :
@@ -1248,24 +1301,59 @@ namespace BioBot
                 if (spec.Trait == Trait.Spill) AddWaste(7, enemy.Layer, enemy.Row, col);
                 if (spec.Trait == Trait.Split && !enemy.Small)
                 {
-                    Enemies.Add(new Enemy(enemy.Spec, enemy.Layer, enemy.Row, enemy.X + 0.15f, 4, true, 0f));
-                    Enemies.Add(new Enemy(enemy.Spec, enemy.Layer, enemy.Row, enemy.X - 0.15f, 4, true, 3.14f));
+                    int rUp = Mathf.Max(0, enemy.Row - 1);
+                    int rDn = Mathf.Min(Rows - 1, enemy.Row + 1);
+                    Enemies.Add(new Enemy(enemy.Spec, enemy.Layer, rUp, enemy.X + 0.15f, 4, true, 0f));
+                    Enemies.Add(new Enemy(enemy.Spec, enemy.Layer, rDn, enemy.X - 0.15f, 4, true, 3.14f));
                 }
                 return;
             }
 
             enemy.Attack = Mathf.Max(0f, enemy.Attack - delta);
             enemy.Slow = Mathf.Max(0f, enemy.Slow - delta);
+            enemy.Stun = Mathf.Max(0f, enemy.Stun - delta);
             enemy.Flash = Mathf.Max(0f, enemy.Flash - delta);
             enemy.BiteAnim = Mathf.Max(0f, enemy.BiteAnim - delta);
             enemy.HurtAnim = Mathf.Max(0f, enemy.HurtAnim - delta);
-            enemy.WalkPhase += delta * (enemy.Slow > 0f ? 2.5f : 5.2f);
+            enemy.WalkPhase += delta * (enemy.Stun > 0f ? 0f : (enemy.Slow > 0f ? 2.5f : 5.2f));
             enemy.Recovery += delta;
+            enemy.ActionTimer -= delta;
+
+            if (enemy.Stun > 0f) return; // Brief stun from Cá Xạ Thủ!
 
             if (spec.Trait == Trait.Filter && enemy.Recovery >= 5.5f)
             {
                 enemy.Health = Mathf.Min(enemy.MaxHealth, enemy.Health + 2);
                 enemy.Recovery = 0f;
+            }
+
+            // Dynamic Enemy Behavior #1: Bè Hai Mạn dives below water at the 3rd column from the right (X <= Columns - 3)!
+            if (spec.Trait == Trait.Ferry && DeepEnabled && enemy.X <= Columns - 3f && !enemy.Shifted)
+            {
+                enemy.Shifted = true;
+                Layer prev = enemy.Layer;
+                enemy.Layer = CampaignCatalog.Opposite(enemy.Layer);
+                OnRing?.Invoke(prev, CellToPixel(prev, enemy.X, enemy.Row), new Color(0.55f, 0.9f, 1f, 1f), 30f);
+                OnRing?.Invoke(enemy.Layer, CellToPixel(enemy.Layer, enemy.X, enemy.Row), new Color(0.55f, 0.9f, 1f, 1f), 30f);
+                OnFloatText?.Invoke(enemy.Layer, CellToPixel(enemy.Layer, enemy.X, enemy.Row) - new Vector2(0, 8),
+                    enemy.Layer == Layer.Deep ? "LẶN XUỐNG!" : "NỔI LÊN!", new Color(0.55f, 0.95f, 1f, 1f));
+            }
+
+            // Dynamic Enemy Behavior #2: Phao Hắc periodically leaks Oil Slicks mid-lane!
+            if (spec.Trait == Trait.Spill && enemy.ActionTimer <= 0f)
+            {
+                enemy.ActionTimer = 6.5f;
+                AddWaste(7, enemy.Layer, enemy.Row, col);
+            }
+
+            // Dynamic Enemy Behavior #3: Sứa Nilon phase-blinks forward 1.1 tiles!
+            if (spec.Trait == Trait.Phase && enemy.ActionTimer <= 0f && enemy.X > 1.5f)
+            {
+                enemy.ActionTimer = 5.5f;
+                enemy.X = Mathf.Max(0.4f, enemy.X - 1.1f);
+                Vector2 px = CellToPixel(enemy.Layer, enemy.X, enemy.Row);
+                OnRing?.Invoke(enemy.Layer, px, new Color(0.85f, 0.55f, 1f, 1f), 28f);
+                OnFloatText?.Invoke(enemy.Layer, px - new Vector2(0, 8), "BIẾN ẢNH!", new Color(0.85f, 0.6f, 1f, 1f));
             }
 
             if (spec.Trait == Trait.Boss)
@@ -1286,19 +1374,18 @@ namespace BioBot
                 }
             }
 
-            if (spec.Trait == Trait.Ferry && DeepEnabled && enemy.X < Columns * 0.52f && !enemy.Shifted)
-            {
-                enemy.Shifted = true;
-                enemy.Layer = CampaignCatalog.Opposite(enemy.Layer);
-                OnRing?.Invoke(enemy.Layer, CellToPixel(enemy.Layer, enemy.X, enemy.Row), new Color(0.55f, 0.9f, 1f, 1f), 28f);
-            }
-
             int side = (int)enemy.Layer;
             var ally = Allies[side, enemy.Row, col];
             if (spec.Trait == Trait.Drift && !enemy.Shifted && ally != null)
             {
                 int adj = enemy.Row == Rows - 1 ? enemy.Row - 1 : enemy.Row + 1;
-                if (Allies[side, adj, col] == null) { enemy.Row = adj; enemy.Shifted = true; ally = null; }
+                if (Allies[side, adj, col] == null)
+                {
+                    enemy.Row = adj;
+                    enemy.Shifted = true;
+                    ally = null;
+                    OnFloatText?.Invoke(enemy.Layer, CellToPixel(enemy.Layer, enemy.X, enemy.Row) - new Vector2(0, 8), "NÉ LÀN!", new Color(1f, 0.85f, 0.45f, 1f));
+                }
             }
 
             if (spec.Trait == Trait.Jam || spec.Trait == Trait.Phase)
@@ -1330,7 +1417,14 @@ namespace BioBot
                     enemy.Attack = 1.15f;
                     enemy.BiteAnim = 0.25f;
                     ally.HurtAnim = 0.18f;
-                    int bite = spec.Trait == Trait.Boss ? 4 : spec.Trait == Trait.Ram ? 3 : 1;
+                    // Dynamic Enemy Behavior #4: Thùng Húc's first ram slams hard with screen shake!
+                    int bite = spec.Trait == Trait.Boss ? 4 : (spec.Trait == Trait.Ram ? (enemy.Charged ? 2 : 5) : 1);
+                    if (spec.Trait == Trait.Ram && !enemy.Charged)
+                    {
+                        enemy.Charged = true;
+                        OnShake?.Invoke(0.18f, 4f);
+                        OnFloatText?.Invoke(enemy.Layer, CellToPixel(enemy.Layer, col, enemy.Row) - new Vector2(0, 10), "HÚC MẠNH!", new Color(1f, 0.5f, 0.4f, 1f));
+                    }
                     ally.Health -= bite;
                     OnBurst?.Invoke(enemy.Layer, CellToPixel(enemy.Layer, col, enemy.Row), new Color(1f, 0.85f, 0.55f, 1f), 4);
                     var def = CampaignCatalog.Allies[ally.Spec];
