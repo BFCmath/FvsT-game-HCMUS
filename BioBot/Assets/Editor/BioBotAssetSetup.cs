@@ -17,7 +17,7 @@ namespace BioBot
             importer.mipmapEnabled = false;
             importer.alphaIsTransparency = true;
             importer.textureCompression = TextureImporterCompression.Uncompressed;
-            importer.maxTextureSize = 2048;
+            importer.maxTextureSize = 4096;
         }
     }
 }

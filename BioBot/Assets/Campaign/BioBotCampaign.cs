@@ -30,6 +30,7 @@ namespace BioBot
         private CampaignMatch match;
 
         private Texture2D atlas;
+        private Texture2D bioBotTex;
         private Texture2D menuBackdrop;
         private Texture2D pool3DBackdrop;
         private Texture2D circleTex;
@@ -66,6 +67,8 @@ namespace BioBot
 
             atlas = Resources.Load<Texture2D>("BioBot/RosterV2") ?? Resources.Load<Texture2D>("BioBot/Roster");
             if (atlas != null) atlas.filterMode = FilterMode.Point;
+            bioBotTex = Resources.Load<Texture2D>("BioBot/BioBotHD");
+            if (bioBotTex != null) bioBotTex.filterMode = FilterMode.Point;
             menuBackdrop = Resources.Load<Texture2D>("BioBot/MenuBackdrop");
             pool3DBackdrop = Resources.Load<Texture2D>("BioBot/Pool3DBackdrop");
             if (pool3DBackdrop != null) pool3DBackdrop.filterMode = FilterMode.Point;
@@ -460,28 +463,12 @@ namespace BioBot
             }
         }
 
+        // 2.5D Painter's Algorithm (Row 0 -> 4 back-to-front) with subtle perspective scaling!
         private void Draw3DFaceEntities(Layer layer)
         {
             float t = Time.unscaledTime;
             int side = (int)layer;
             bool isActive = layer == match.RobotLayer;
-
-            // Spinning Hydro-Turbines along slanted left dam edge
-            for (int r = 0; r < CampaignMatch.Rows; r++)
-            {
-                if (match.TurbineReady[side, r])
-                {
-                    Vector2 tp = CampaignMatch.CellToPixel(layer, -0.35f, r);
-                    Rect tr = new Rect(tp.x - 8, tp.y - 9, 16, 18);
-                    Fill(tr, new Color(0.2f, 0.8f, 0.86f, isActive ? 0.92f : 0.35f));
-                    Border(tr, new Color(1, 1, 1, isActive ? 0.95f : 0.3f));
-                    if (isActive)
-                    {
-                        float spin = Mathf.Sin(t * 10f + r) * 3.5f;
-                        Fill(new Rect(tr.x + 2, tr.center.y - 1.5f + spin, 12, 3), Color.white);
-                    }
-                }
-            }
 
             // Hover Ghost Preview (ONLY crisp on Active Face!)
             if (isActive && !conceptBoxOpen && overlay == Overlay.None && Event.current != null &&
@@ -489,6 +476,7 @@ namespace BioBot
                 hLayer == layer)
             {
                 Vector2 hp = CampaignMatch.CellToPixel(layer, hc, hr);
+                float pScale = 0.94f + hr * 0.032f;
                 Rect hrRect = new Rect(hp.x - CampaignMatch.CellW * 0.48f, hp.y - CampaignMatch.CellH * 0.48f,
                     CampaignMatch.CellW * 0.96f, CampaignMatch.CellH * 0.96f);
                 if (shovelMode)
@@ -502,31 +490,49 @@ namespace BioBot
                     Fill(hrRect, valid ? new Color(0.45f, 1f, 0.72f, 0.24f) : new Color(1f, 0.4f, 0.35f, 0.2f));
                     Border(hrRect, valid ? Green : Danger);
                     if (valid)
-                        DrawAllySprite(selection, Around(hp, 26), 5, 0, new Color(1, 1, 1, 0.55f));
+                        DrawAllySprite(selection, Around(hp - new Vector2(0, 4), 34f * pScale), 5, 0, new Color(1, 1, 1, 0.55f));
                 }
             }
 
-            // Trash & Allies (Clear on active face, softly blurred 3-tap haze on inactive face!)
+            // Back-to-Front Row-by-Row 2.5D Rendering!
             for (int r = 0; r < CampaignMatch.Rows; r++)
             {
+                float depthScale = 0.94f + r * 0.032f;
+
+                // Spinning Hydro-Turbine at left dam edge of this row
+                if (match.TurbineReady[side, r])
+                {
+                    Vector2 tp = CampaignMatch.CellToPixel(layer, -0.35f, r);
+                    Rect tr = new Rect(tp.x - 8, tp.y - 9, 16, 18);
+                    Fill(tr, new Color(0.2f, 0.8f, 0.86f, isActive ? 0.94f : 0.35f));
+                    Border(tr, new Color(1, 1, 1, isActive ? 0.95f : 0.3f));
+                    if (isActive)
+                    {
+                        float spin = Mathf.Sin(t * 10f + r) * 3.5f;
+                        Fill(new Rect(tr.x + 2, tr.center.y - 1.5f + spin, 12, 3), Color.white);
+                    }
+                }
+
+                // Trash & Allies in this row
                 for (int c = 0; c < CampaignMatch.Columns; c++)
                 {
                     Vector2 p = CampaignMatch.CellToPixel(layer, c, r);
                     var waste = match.Trash[side, r, c];
                     if (waste != null)
                     {
-                        float bobY = Mathf.Sin(t * 3.6f + waste.BobPhase) * 1.6f;
+                        float bobY = Mathf.Sin(t * 3.6f + waste.BobPhase) * 1.8f;
+                        Rect wr = Around(p + new Vector2(0, bobY - 2f), 30f * depthScale);
                         if (isActive)
                         {
                             if (waste.Active)
-                                Border(new Rect(p.x - 15, p.y - 11, 30, 22), new Color(0.45f, 1f, 0.92f, 0.85f));
-                            DrawSprite(34 + waste.Spec, Around(p + new Vector2(0, bobY), 24), 4, c + r, Color.white);
+                                Border(new Rect(p.x - 16, p.y - 12, 32, 24), new Color(0.45f, 1f, 0.92f, 0.85f));
+                            DrawSprite(34 + waste.Spec, wr, 4, c + r, Color.white);
                             if (CampaignCatalog.Trash[waste.Spec].Effect == TrashEffect.Filament)
-                                Label(p.x - 16, p.y - 15 + bobY, 32, 12, "CỨU!", smallCenter, Cyan);
+                                Label(p.x - 16, p.y - 18 + bobY, 32, 12, "CỨU!", smallCenter, Cyan);
                         }
                         else
                         {
-                            DrawBlurredSprite(34 + waste.Spec, Around(p + new Vector2(0, bobY), 24), 4, c + r, new Color(0.65f, 0.82f, 0.92f, 0.32f));
+                            DrawBlurredSprite(34 + waste.Spec, wr, 4, c + r, new Color(0.65f, 0.82f, 0.92f, 0.32f));
                         }
                     }
 
@@ -544,13 +550,15 @@ namespace BioBot
                         if (ally.FireAnim > 0f)
                         {
                             float ft = ally.FireAnim / 0.24f;
-                            sx *= 1f + ft * 0.22f; sy *= 1f - ft * 0.14f; ox += ft * 4f;
-                            if (isActive && ft > 0.65f) DrawCircle(p + new Vector2(13, -1), 9f * ft, new Color(0.85f, 1f, 0.85f, 0.75f));
+                            sx *= 1f + ft * 0.22f; sy *= 1f - ft * 0.14f; ox += ft * 4.5f;
+                            if (isActive && ft > 0.65f) DrawCircle(p + new Vector2(15, -4), 10f * ft, new Color(0.85f, 1f, 0.85f, 0.78f));
                         }
-                        if (ally.HurtAnim > 0f) ox -= Mathf.Sin(ally.HurtAnim * 38f) * 3f;
+                        if (ally.HurtAnim > 0f) ox -= Mathf.Sin(ally.HurtAnim * 38f) * 3.5f;
 
-                        float w = 28f * sx, h = 28f * sy;
-                        Rect ar = new Rect(p.x - w * 0.5f + ox, p.y - h * 0.5f, w, h);
+                        float sz = 36f * depthScale;
+                        float w = sz * sx, h = sz * sy;
+                        // Raise creature slightly so its 2.5D shadow sits right in the slanted tile!
+                        Rect ar = new Rect(p.x - w * 0.5f + ox, p.y - h * 0.62f, w, h);
                         if (isActive)
                         {
                             Color tint = ally.HurtAnim > 0f ? new Color(1f, 0.72f, 0.72f, 1f)
@@ -558,9 +566,9 @@ namespace BioBot
                                 : ally.Jammed > 0f ? new Color(0.75f, 0.65f, 1f, 1f) : Color.white;
                             DrawAllySprite(ally.Spec, ar, ally.FireAnim > 0f ? 12 : 5, c + r, tint);
                             if (ally.Draining)
-                                Label(p.x - 16, p.y - 17, 32, 11, "O₂↓", smallCenter, new Color(1f, 0.72f, 0.35f, 1f));
+                                Label(p.x - 16, p.y - 21, 32, 11, "O₂↓", smallCenter, new Color(1f, 0.72f, 0.35f, 1f));
                             if (ally.Health < ally.MaxHealth)
-                                Bar(new Rect(p.x - 11, p.y + 9, 22, 3), ally.Health / (float)ally.MaxHealth, ally.Draining ? Gold : Green);
+                                Bar(new Rect(p.x - 12, p.y + 8, 24, 3), ally.Health / (float)ally.MaxHealth, ally.Draining ? Gold : Green);
                         }
                         else
                         {
@@ -569,84 +577,86 @@ namespace BioBot
                         }
                     }
                 }
-            }
 
-            // Sliding Bowling Bottles
-            foreach (var sb in match.SlidingBottles)
-            {
-                if (sb.Layer != layer) continue;
-                Vector2 p = CampaignMatch.CellToPixel(layer, sb.X, sb.Row);
-                if (isActive)
+                // Sliding Bowling Bottles in this row
+                foreach (var sb in match.SlidingBottles)
                 {
-                    DrawCircle(p - new Vector2(Mathf.Sign(sb.VelX) * 9, 0), 9f, new Color(0.75f, 0.98f, 1f, 0.45f));
-                    DrawSprite(34, Around(p, 26), 12, 0, Color.white);
+                    if (sb.Layer != layer || sb.Row != r) continue;
+                    Vector2 p = CampaignMatch.CellToPixel(layer, sb.X, sb.Row);
+                    Rect sr = Around(p - new Vector2(0, 2), 30f * depthScale);
+                    if (isActive)
+                    {
+                        DrawCircle(p - new Vector2(Mathf.Sign(sb.VelX) * 10, 0), 10f, new Color(0.75f, 0.98f, 1f, 0.45f));
+                        DrawSprite(34, sr, 12, 0, Color.white);
+                    }
+                    else DrawBlurredSprite(34, sr, 8, 0, new Color(0.7f, 0.9f, 1f, 0.32f));
                 }
-                else DrawBlurredSprite(34, Around(p, 26), 8, 0, new Color(0.7f, 0.9f, 1f, 0.32f));
-            }
 
-            // Turbine Waves & Beams
-            foreach (var tw in match.Turbines)
-            {
-                if (tw.Layer != layer) continue;
-                Vector2 p = CampaignMatch.CellToPixel(layer, tw.X, tw.Row);
-                Fill(new Rect(p.x - 15, p.y - 11, 26, 22), new Color(0.35f, 0.92f, 1f, isActive ? 0.88f : 0.35f));
-            }
-            foreach (var b in match.Beams)
-            {
-                if (b.Layer != layer) continue;
-                Vector2 a = CampaignMatch.CellToPixel(layer, b.From, b.Row);
-                Vector2 c = CampaignMatch.CellToPixel(layer, b.To, b.Row);
-                Color col = b.Color; col.a = Mathf.Clamp01(b.Left * 5f) * (isActive ? 1f : 0.35f);
-                Fill(new Rect(Mathf.Min(a.x, c.x), a.y - 3, Mathf.Max(8f, Mathf.Abs(a.x - c.x)), 6), col);
-            }
-
-            // Projectiles
-            foreach (var proj in match.Projectiles)
-            {
-                if (proj.Layer != layer) continue;
-                Vector2 p = CampaignMatch.CellToPixel(layer, proj.X, proj.Row);
-                Color pc = proj.Kind switch
+                // Turbine Waves & Beams in this row
+                foreach (var tw in match.Turbines)
                 {
-                    ProjectileKind.Bubble => Cyan,
-                    ProjectileKind.Zap => Gold,
-                    ProjectileKind.Spear => Green,
-                    ProjectileKind.Slow => new Color(0.6f, 0.92f, 1f, 1f),
-                    ProjectileKind.Push => new Color(0.85f, 1f, 0.45f, 1f),
-                    ProjectileKind.Geyser => new Color(1f, 0.62f, 0.3f, 1f),
-                    _ => new Color(0.55f, 1f, 0.55f, 1f)
-                };
-                pc.a *= isActive ? 1f : 0.32f;
-                DrawCircle(p, proj.Kind == ProjectileKind.Geyser ? 10f : 7.5f, pc);
-                if (isActive) DrawCircle(p - new Vector2(1.5f, 1.5f), 2.8f, Color.white);
-            }
-
-            // Enemies (Clear & vivid on active face; hazy blurred silhouettes on inactive face!)
-            foreach (var e in match.Enemies)
-            {
-                if (e.Layer != layer) continue;
-                var eSpec = CampaignCatalog.Enemies[e.Spec];
-                Vector2 p = CampaignMatch.CellToPixel(layer, Mathf.Clamp(e.X, -0.3f, CampaignMatch.Columns - 0.1f), e.Row);
-                float baseSz = eSpec.Trait == Trait.Boss ? 46f : (e.Small ? 21f : (layer == Layer.Deep ? 32f : 29f));
-                float waddle = Mathf.Abs(Mathf.Sin(e.WalkPhase));
-                float sx = 1f + (0.5f - waddle) * 0.08f, sy = 1f + (waddle - 0.5f) * 0.08f;
-                float ox = 0f, oy = -waddle * 2.2f;
-                if (e.BiteAnim > 0f) ox -= Mathf.Sin((e.BiteAnim / 0.25f) * Mathf.PI) * 5f;
-                if (e.HurtAnim > 0f) { float ht = e.HurtAnim / 0.16f; ox += ht * 4f; sx *= 1f - ht * 0.16f; }
-                Rect er = new Rect(p.x - baseSz * sx * 0.5f + ox, p.y - baseSz * sy * 0.5f + oy, baseSz * sx, baseSz * sy);
-
-                if (isActive)
-                {
-                    if (layer == Layer.Deep) DrawCircle(p, baseSz * 0.85f, new Color(0.55f, 0.18f, 0.65f, 0.22f)); // Contaminated aura!
-                    Color tint = e.Flash > 0f ? new Color(1f, 0.55f, 0.45f, 1f)
-                        : e.Stun > 0f ? new Color(1f, 0.94f, 0.55f, 1f)
-                        : e.Slow > 0f ? new Color(0.62f, 0.88f, 1f, 1f) : Color.white;
-                    DrawSprite(20 + e.Spec, er, e.Slow > 0f ? 4 : 8, e.Row, tint);
-                    float bw = eSpec.Trait == Trait.Boss ? 40f : 22f;
-                    Bar(new Rect(p.x - bw * 0.5f, p.y - baseSz * 0.54f, bw, 3), e.Health / (float)e.MaxHealth, Danger);
+                    if (tw.Layer != layer || tw.Row != r) continue;
+                    Vector2 p = CampaignMatch.CellToPixel(layer, tw.X, tw.Row);
+                    Fill(new Rect(p.x - 16, p.y - 12, 28, 24), new Color(0.35f, 0.92f, 1f, isActive ? 0.88f : 0.35f));
                 }
-                else
+                foreach (var b in match.Beams)
                 {
-                    DrawBlurredSprite(20 + e.Spec, er, 5, e.Row, new Color(0.85f, 0.45f, 0.52f, 0.38f));
+                    if (b.Layer != layer || b.Row != r) continue;
+                    Vector2 a = CampaignMatch.CellToPixel(layer, b.From, b.Row);
+                    Vector2 c = CampaignMatch.CellToPixel(layer, b.To, b.Row);
+                    Color col = b.Color; col.a = Mathf.Clamp01(b.Left * 5f) * (isActive ? 1f : 0.35f);
+                    Fill(new Rect(Mathf.Min(a.x, c.x), a.y - 3, Mathf.Max(8f, Mathf.Abs(a.x - c.x)), 6), col);
+                }
+
+                // Projectiles in this row
+                foreach (var proj in match.Projectiles)
+                {
+                    if (proj.Layer != layer || proj.Row != r) continue;
+                    Vector2 p = CampaignMatch.CellToPixel(layer, proj.X, proj.Row) - new Vector2(0, 4);
+                    Color pc = proj.Kind switch
+                    {
+                        ProjectileKind.Bubble => Cyan,
+                        ProjectileKind.Zap => Gold,
+                        ProjectileKind.Spear => Green,
+                        ProjectileKind.Slow => new Color(0.6f, 0.92f, 1f, 1f),
+                        ProjectileKind.Push => new Color(0.85f, 1f, 0.45f, 1f),
+                        ProjectileKind.Geyser => new Color(1f, 0.62f, 0.3f, 1f),
+                        _ => new Color(0.55f, 1f, 0.55f, 1f)
+                    };
+                    pc.a *= isActive ? 1f : 0.32f;
+                    DrawCircle(p - new Vector2(7, 0), 5f * depthScale, new Color(pc.r, pc.g, pc.b, pc.a * 0.4f));
+                    DrawCircle(p, (proj.Kind == ProjectileKind.Geyser ? 11f : 8f) * depthScale, pc);
+                    if (isActive) DrawCircle(p - new Vector2(1.5f, 1.5f), 3f, Color.white);
+                }
+
+                // Enemies in this row (2.5D depth-sorted!)
+                foreach (var e in match.Enemies)
+                {
+                    if (e.Layer != layer || e.Row != r) continue;
+                    var eSpec = CampaignCatalog.Enemies[e.Spec];
+                    Vector2 p = CampaignMatch.CellToPixel(layer, Mathf.Clamp(e.X, -0.3f, CampaignMatch.Columns - 0.1f), e.Row);
+                    float baseSz = (eSpec.Trait == Trait.Boss ? 56f : (e.Small ? 26f : (layer == Layer.Deep ? 39f : 36f))) * depthScale;
+                    float waddle = Mathf.Abs(Mathf.Sin(e.WalkPhase));
+                    float sx = 1f + (0.5f - waddle) * 0.08f, sy = 1f + (waddle - 0.5f) * 0.08f;
+                    float ox = 0f, oy = -waddle * 2.5f;
+                    if (e.BiteAnim > 0f) ox -= Mathf.Sin((e.BiteAnim / 0.25f) * Mathf.PI) * 5.5f;
+                    if (e.HurtAnim > 0f) { float ht = e.HurtAnim / 0.16f; ox += ht * 4f; sx *= 1f - ht * 0.16f; }
+                    Rect er = new Rect(p.x - baseSz * sx * 0.5f + ox, p.y - baseSz * sy * 0.62f + oy, baseSz * sx, baseSz * sy);
+
+                    if (isActive)
+                    {
+                        if (layer == Layer.Deep) DrawCircle(p, baseSz * 0.72f, new Color(0.55f, 0.18f, 0.65f, 0.22f));
+                        Color tint = e.Flash > 0f ? new Color(1f, 0.55f, 0.45f, 1f)
+                            : e.Stun > 0f ? new Color(1f, 0.94f, 0.55f, 1f)
+                            : e.Slow > 0f ? new Color(0.62f, 0.88f, 1f, 1f) : Color.white;
+                        DrawSprite(20 + e.Spec, er, e.Slow > 0f ? 4 : 8, e.Row, tint);
+                        float bw = eSpec.Trait == Trait.Boss ? 44f : 24f;
+                        Bar(new Rect(p.x - bw * 0.5f, er.y - 4f, bw, 3), e.Health / (float)e.MaxHealth, Danger);
+                    }
+                    else
+                    {
+                        DrawBlurredSprite(20 + e.Spec, er, 5, e.Row, new Color(0.85f, 0.45f, 0.52f, 0.38f));
+                    }
                 }
             }
         }
@@ -664,15 +674,24 @@ namespace BioBot
         {
             if (match.Respawn > 0f) return;
             Vector2 p = CampaignMatch.CellToPixel(match.RobotLayer, match.RobotX, match.RobotY);
+            float depthScale = 0.94f + match.RobotY * 0.032f;
             float bob = Mathf.Sin(Time.unscaledTime * (match.RobotMoving ? 10f : 4f)) * 2f;
-            // Friendly glowing Bio-Bot submarine drone
-            DrawCircle(p + new Vector2(0, bob), match.IsDashing ? 28f : 22f, new Color(1f, 0.82f, 0.35f, 0.25f));
-            Fill(new Rect(p.x - 10, p.y - 8 + bob, 20, 15), new Color32(246, 178, 86, 255));
-            Border(new Rect(p.x - 10, p.y - 8 + bob, 20, 15), Ink);
-            float visorX = match.RobotFacingLeft ? p.x - 8 : p.x + 1;
-            Fill(new Rect(visorX, p.y - 5 + bob, 7, 7), new Color32(84, 242, 232, 255));
-            Fill(new Rect(p.x - 1, p.y - 12 + bob, 2, 4), Gold);
-            Label(p.x - 16, p.y + 8 + bob, 32, 11, "BOT", smallCenter, Gold);
+            DrawCircle(p + new Vector2(0, bob), match.IsDashing ? 34f : 26f, new Color(1f, 0.84f, 0.35f, match.IsDashing ? 0.38f : 0.22f));
+            if (bioBotTex != null)
+            {
+                int frame = Mathf.FloorToInt(Time.unscaledTime * (match.RobotMoving ? 10f : 5f)) % 4;
+                float sz = 38f * depthScale;
+                Rect r = new Rect(p.x - sz * 0.5f, p.y - sz * 0.62f + bob, sz, sz);
+                Rect uv = match.RobotFacingLeft
+                    ? new Rect((frame + 1) * 0.25f, 0f, -0.25f, 1f)
+                    : new Rect(frame * 0.25f, 0f, 0.25f, 1f);
+                GUI.color = match.IsDashing ? new Color(0.8f, 1f, 1f, 1f) : Color.white;
+                GUI.DrawTextureWithTexCoords(r, bioBotTex, uv);
+            }
+            else
+            {
+                Fill(new Rect(p.x - 10, p.y - 8 + bob, 20, 15), new Color32(246, 178, 86, 255));
+            }
         }
 
         private void DrawOrbsAndVfx()
@@ -1338,6 +1357,11 @@ namespace BioBot
 
         private void Label(float x, float y, float w, float h, string val, GUIStyle style, Color col)
         {
+            if (style == title || style == heading)
+            {
+                GUI.color = new Color(0f, 0f, 0f, col.a * 0.65f);
+                GUI.Label(new Rect(x + 1.2f, y + 1.2f, w, h), val, style);
+            }
             GUI.color = col;
             GUI.Label(new Rect(x, y, w, h), val, style);
         }
