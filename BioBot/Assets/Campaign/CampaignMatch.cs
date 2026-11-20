@@ -9,8 +9,10 @@ namespace BioBot
     public sealed class CampaignMatch
     {
         public const int Rows = 5, Columns = 11, MaxIntegrity = 10;
-        public const float GridLeft = 30f, CellW = 56f, CellH = 27f;
-        public const float SurfaceTop = 78f, DeepTop = 223f;
+        // Exact 3D Oblique Glass-Tank Pool Geometry (matches Pool3DBackdrop.png!)
+        public const float SurfX0 = 100f, SurfY0 = 82f;
+        public const float DeepX0 = 76f, DeepY0 = 226f;
+        public const float CellW = 48f, CellH = 24f, ShearX = 10f;
 
         public sealed class Ally
         {
@@ -121,8 +123,8 @@ namespace BioBot
         private readonly CampaignProgress progress;
         private readonly System.Random rng;
         private int nextArrival;
-        private float skyOrbTimer = 5.0f;
-        private float trashDropTimer = 22f;
+        private float skyOrbTimer = 11.5f;
+        private float trashDropTimer = 20f;
         private float surgeOrbTimer;
         private float invulnerable;
         private float pulseCooldown;
@@ -229,34 +231,43 @@ namespace BioBot
             PlaceStartingTrash();
         }
 
-        // Exact Split-View pixel mapping for BOTH layers simultaneously!
+        // Exact 3D Oblique Projection for Top Face (Surface) and Bottom Face (Deep)!
         public static Vector2 CellToPixel(Layer layer, float col, float row)
         {
-            float top = layer == Layer.Surface ? SurfaceTop : DeepTop;
-            return new Vector2(GridLeft + (col + 0.5f) * CellW, top + (row + 0.5f) * CellH);
+            float x0 = layer == Layer.Surface ? SurfX0 : DeepX0;
+            float y0 = layer == Layer.Surface ? SurfY0 : DeepY0;
+            float rCenter = row + 0.5f;
+            float cCenter = col + 0.5f;
+            return new Vector2(x0 - rCenter * ShearX + cCenter * CellW, y0 + rCenter * CellH);
+        }
+
+        public static Vector2 CellCorner(Layer layer, float col, float row)
+        {
+            float x0 = layer == Layer.Surface ? SurfX0 : DeepX0;
+            float y0 = layer == Layer.Surface ? SurfY0 : DeepY0;
+            return new Vector2(x0 - row * ShearX + col * CellW, y0 + row * CellH);
         }
 
         public static bool TryPixelToCell(Vector2 pos, bool deepAllowed, out Layer layer, out int col, out int row)
         {
-            col = Mathf.FloorToInt((pos.x - GridLeft) / CellW);
-            if (col >= 0 && col < Columns)
-            {
-                if (pos.y >= SurfaceTop && pos.y < SurfaceTop + Rows * CellH)
-                {
-                    layer = Layer.Surface;
-                    row = Mathf.FloorToInt((pos.y - SurfaceTop) / CellH);
-                    return true;
-                }
-                if (deepAllowed && pos.y >= DeepTop && pos.y < DeepTop + Rows * CellH)
-                {
-                    layer = Layer.Deep;
-                    row = Mathf.FloorToInt((pos.y - DeepTop) / CellH);
-                    return true;
-                }
-            }
+            if (TryHitFace(pos, Layer.Surface, out col, out row)) { layer = Layer.Surface; return true; }
+            if (deepAllowed && TryHitFace(pos, Layer.Deep, out col, out row)) { layer = Layer.Deep; return true; }
             layer = Layer.Surface;
-            row = 0;
+            col = row = 0;
             return false;
+        }
+
+        private static bool TryHitFace(Vector2 pos, Layer face, out int col, out int row)
+        {
+            float x0 = face == Layer.Surface ? SurfX0 : DeepX0;
+            float y0 = face == Layer.Surface ? SurfY0 : DeepY0;
+            float fr = (pos.y - y0) / CellH;
+            if (fr < 0f || fr >= Rows) { col = row = 0; return false; }
+            float fc = (pos.x - (x0 - fr * ShearX)) / CellW;
+            if (fc < 0f || fc >= Columns) { col = row = 0; return false; }
+            row = Mathf.FloorToInt(fr);
+            col = Mathf.FloorToInt(fc);
+            return true;
         }
 
         public bool HasUpdraftAt(int row, int col)
@@ -289,10 +300,10 @@ namespace BioBot
             }
         }
 
-        // Relaxed, enjoyable PvZ-paced waves (2x calmer than before!)
+        // Engaging, balanced PvZ pacing with gradual Stage 1->10 escalation
         private void CreateCampaignArrivals()
         {
-            float start = Level == 1 ? 14f : 12.5f;
+            float start = Level == 1 ? 10f : 8.5f;
             var eligible = new List<int>();
             for (int i = 0; i < CampaignCatalog.Enemies.Length; i++)
             {
@@ -304,8 +315,8 @@ namespace BioBot
             for (int wave = 1; wave <= Rules.Waves; wave++)
             {
                 var introduced = eligible.FindAll(id => CampaignCatalog.Enemies[id].Unlock == Level);
-                int count = Level == 1 ? (2 + wave) : (3 + Level / 2 + wave * 2);
-                float spacing = Mathf.Max(2.6f, 4.4f - Level * 0.16f);
+                int count = Level == 1 ? (3 + wave) : (4 + Level / 2 + wave * 2);
+                float spacing = Mathf.Max(1.65f, 3.2f - Level * 0.14f);
                 for (int n = 0; n < count; n++)
                 {
                     int spec = (n < introduced.Count && wave == 1)
@@ -322,14 +333,14 @@ namespace BioBot
                 {
                     arrivals.Add(new Arrival
                     {
-                        Time = start + count * spacing + 2.5f,
+                        Time = start + count * spacing + 2.0f,
                         Wave = wave,
                         Spec = CampaignCatalog.Enemies.Length - 1,
                         Row = 2,
                         Layer = Layer.Surface
                     });
                 }
-                start += count * spacing + 14f;
+                start += count * spacing + 11f;
             }
         }
 
@@ -370,13 +381,14 @@ namespace BioBot
         {
             int effLevel = Endless ? 10 : Level;
             AddWaste(0, Layer.Surface, 2, 4);
-            if (effLevel == 1) return; // Clean & uncluttered Stage 1!
+            if (effLevel == 1) return;
             AddWaste(1, Layer.Surface, 3, 3);
+            if (effLevel == 2) return;
             AddWaste(2, Layer.Deep, 2, 3);
             AddWaste(3, Layer.Deep, 1, 5);
-            if (effLevel >= 4) { AddWaste(4, Layer.Deep, 2, 5); AddWaste(5, Layer.Surface, 0, 6); }
-            if (effLevel >= 6) { AddWaste(6, Layer.Deep, 3, 4); AddWaste(7, Layer.Surface, 2, 7); }
-            if (effLevel >= 8) { AddWaste(8, Layer.Deep, 2, 6); AddWaste(9, Layer.Surface, 4, 6); }
+            if (effLevel >= 5) { AddWaste(4, Layer.Deep, 2, 5); AddWaste(5, Layer.Surface, 0, 6); }
+            if (effLevel >= 7) { AddWaste(6, Layer.Deep, 3, 4); AddWaste(7, Layer.Surface, 2, 7); }
+            if (effLevel >= 9) { AddWaste(8, Layer.Deep, 2, 6); AddWaste(9, Layer.Surface, 4, 6); }
         }
 
         private void AddWaste(int id, Layer layer, int row, int col)
@@ -390,13 +402,18 @@ namespace BioBot
         {
             reason = null;
             if (Ended || id < 0 || id >= CampaignCatalog.Allies.Length) return false;
-            if (layer == Layer.Deep && !DeepEnabled) { reason = "Đáy Biển mở từ Màn 2!"; return false; }
+            if (layer == Layer.Deep && !DeepEnabled) { reason = "Đáy Biển mở từ Màn 3!"; return false; }
+            if (layer != RobotLayer)
+            {
+                reason = layer == Layer.Deep ? "Bấm Q để lặn xuống Đáy Biển trước khi đặt!" : "Bấm Q để nổi lên Mặt Nước trước khi đặt!";
+                return false;
+            }
             var spec = CampaignCatalog.Allies[id];
             if (!Endless && spec.Unlock > Level) { reason = "Chưa mở khóa."; return false; }
             if (CardCooldowns[id] > 0f) { reason = "Thẻ đang hồi chiêu."; return false; }
             if (!CampaignCatalog.Fits(spec.Habitat, layer))
             {
-                reason = spec.Habitat == Habitat.Deep ? $"{spec.Name} chỉ sống ở Đáy Biển (nửa dưới)!" : $"{spec.Name} chỉ sống ở Mặt Nước (nửa trên)!";
+                reason = spec.Habitat == Habitat.Deep ? $"{spec.Name} chỉ sống ở Đáy Biển (bấm Q lặn xuống)!" : $"{spec.Name} chỉ sống ở Mặt Nước (bấm Q nổi lên)!";
                 return false;
             }
             if (Allies[(int)layer, row, col] != null || Trash[(int)layer, row, col] != null)
@@ -633,7 +650,7 @@ namespace BioBot
             for (int i = Orbs.Count - 1; i >= 0; i--)
             {
                 var orb = Orbs[i];
-                if (orb.FlyingToBank) continue;
+                if (orb.FlyingToBank || orb.Layer != RobotLayer) continue;
                 if (Vector2.Distance(orb.Pos, pixelPos) <= 24f)
                 {
                     StartOrbFly(orb);
@@ -754,10 +771,9 @@ namespace BioBot
             skyOrbTimer -= delta;
             if (skyOrbTimer <= 0f)
             {
-                skyOrbTimer = 6.5f;
-                Layer ol = DeepEnabled && rng.Next(3) == 0 ? Layer.Deep : Layer.Surface;
-                Vector2 tgt = CellToPixel(ol, 1f + (float)rng.NextDouble() * (Columns - 3), rng.Next(Rows));
-                SpawnOrb(ol, new Vector2(tgt.x, ol == Layer.Surface ? 74f : 220f), tgt.y, 25);
+                skyOrbTimer = 11.5f; // Rarer natural sun so Rái Cá is essential!
+                Vector2 tgt = CellToPixel(RobotLayer, 1f + (float)rng.NextDouble() * (Columns - 3), rng.Next(Rows));
+                SpawnOrb(RobotLayer, new Vector2(tgt.x, RobotLayer == Layer.Surface ? 74f : 220f), tgt.y, 25);
             }
 
             trashDropTimer -= delta;
@@ -829,7 +845,10 @@ namespace BioBot
                     if (Endless && Wave >= 5) OnAchievement?.Invoke("endless_5");
                 }
                 var eSpec = CampaignCatalog.Enemies[arrival.Spec];
-                int hp = Endless ? Mathf.RoundToInt(eSpec.Health * (1f + (Wave - 1) * 0.14f)) : eSpec.Health;
+                // Underwater is heavier & more contaminated: Deep enemies get +40% HP!
+                float deepTankMult = arrival.Layer == Layer.Deep && eSpec.Trait != Trait.Boss ? 1.4f : 1f;
+                int baseHp = Mathf.RoundToInt(eSpec.Health * deepTankMult);
+                int hp = Endless ? Mathf.RoundToInt(baseHp * (1f + (Wave - 1) * 0.14f)) : baseHp;
                 Enemies.Add(new Enemy(arrival.Spec, arrival.Layer, arrival.Row, Columns - 0.25f, hp, false, (float)rng.NextDouble() * 6.28f));
             }
 

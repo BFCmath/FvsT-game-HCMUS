@@ -80,12 +80,12 @@ namespace BioBot
 
     public sealed class LevelSpec
     {
-        public readonly string Name, Subtitle, Story, Lesson, UnlockSummary;
+        public readonly string Name, Subtitle, Story, Lesson, ConceptTitle, ConceptBody;
         public readonly int Budget, Waves, SurfaceWeight, CoinReward;
         public readonly bool HasBoss, DeepActive;
 
         public LevelSpec(string name, string subtitle, int budget, int waves, int surfaceWeight,
-            int coinReward, bool hasBoss, bool deepActive, string unlockSummary, string story, string lesson)
+            int coinReward, bool hasBoss, bool deepActive, string conceptTitle, string conceptBody, string story, string lesson)
         {
             Name = name;
             Subtitle = subtitle;
@@ -95,7 +95,8 @@ namespace BioBot
             CoinReward = coinReward;
             HasBoss = hasBoss;
             DeepActive = deepActive;
-            UnlockSummary = unlockSummary;
+            ConceptTitle = conceptTitle;
+            ConceptBody = conceptBody;
             Story = story;
             Lesson = lesson;
         }
@@ -141,124 +142,136 @@ namespace BioBot
         private const Reach O = Reach.Other;
         private const Reach X = Reach.Both;
 
+        // 10 Gradual Stages — Stage 1 has ONLY Rái Cá & Vịt!
         public static readonly LevelSpec[] Levels =
         {
             new LevelSpec(
-                "Bến Gom Nắng Mai", "Màn 1 · Làm quen Mặt Nước", 150, 2, 100, 35, false, false,
-                "Rái Cá (+25 NL), Vịt Bắn Bọt, Rùa Khiên",
-                "Chương 1 — Cửa Sông Bình Minh: Đợt rác đầu mùa đang trôi chậm vào mặt nước. Hãy thả Rái Cá tạo Năng Lượng và Vịt Bắn Bọt bảo vệ bờ đê!",
-                "Chỉ cần chơi ở Mặt Nước (nửa trên): 1) Thả Rái Cá lấy NL, 2) Thả Vịt Bắn Bọt chặn rác, 3) Click Hạt Vàng!"),
+                "Bến Gom Nắng Mai", "Màn 1 · Chỉ Rái Cá & Vịt", 100, 2, 100, 35, false, false,
+                "KHÁI NIỆM MỚI: RÁI CÁ & VỊT BẮN BỌT",
+                "• RÁI CÁ (☀ +25 NL): Tự tạo Hạt Vàng Năng Lượng. Hạt rơi tự nhiên rất ít nên hãy đặt 2-3 Rái Cá trước!\n• VỊT BẮN BỌT (● Bắn Mặt): Bắn tiêu diệt quái rác trên Mặt Nước.\n• Lái Bio-Bot (WASD) đẩy Chai Phao sang trái nhận +50 NL!",
+                "Chương 1 — Cửa Sông Bình Minh: Đợt rác đầu tiên trôi vào mặt bể. Hãy dùng Rái Cá tạo năng lượng và Vịt Bắn Bọt bảo vệ bờ đê!",
+                "Màn 1 chỉ có 2 thẻ: Đặt Rái Cá ở cột trái tạo Năng Lượng, sau đó đặt Vịt Bắn Bọt chặn quái rác!"),
             new LevelSpec(
-                "Vịnh Cứu Hộ Đáy Sâu", "Màn 2 · Mở khóa Đáy Biển", 175, 2, 65, 45, false, true,
-                "Cá Xạ Thủ (bắn Đáy), Bạch Tuộc Neo (làm chậm Mặt từ Đáy)",
-                "Chương 1 — Khám Phá Đáy Biển: Nửa dưới màn hình là Đáy Biển! Hãy click vào Dây Cước ở Đáy để cứu Cá Xạ Thủ và thả Bạch Tuộc Neo hỗ trợ ngược lên Mặt Nước.",
-                "Bạn nhìn thấy CẢ 2 TẦNG cùng lúc! Click trực tiếp vào ô ở Mặt Nước (trên) hoặc Đáy Biển (dưới) để thả sinh vật."),
+                "Bức Tường Mai Xanh", "Màn 2 · Rùa Khiên & Mảnh Vỏ", 125, 2, 100, 45, false, false,
+                "KHÁI NIỆM MỚI: RÙA KHIÊN & BẦY TÚI CHỘP",
+                "• RÙA KHIÊN (🛡 Chắn): Máu siêu trâu, đặt phía trước Vịt để chặn quái rác và phản đòn.\n• MẢNH VỎ: Click trái thu +25 NL, hoặc Chuột phải dựng ngay khiên tạm thời!",
+                "Chương 1 — Bầy Rác Nhựa: Túi Chộp bơi theo bầy rất nhanh! Hãy mở khóa Rùa Khiên chắn đầu hàng để Vịt Bắn Bọt có thời gian tiêu diệt.",
+                "Đặt Rùa Khiên phía trước Vịt Bắn Bọt. Rác Mảnh Vỏ có thể thu lấy NL hoặc chuột phải biến thành khiên!"),
             new LevelSpec(
-                "Hải Lưu Phá Giáp", "Màn 3 · Phá giáp & Hồi máu", 200, 2, 60, 50, false, true,
-                "Tôm Súng (phá giáp), Cò Chữa Lành (hồi máu Đáy)",
-                "Chương 1 — Giáp Sắt Lon Kén: Lon Kén có vỏ sắt chống đòn thường. Thả Tôm Súng dưới Đáy hoặc bấm R (Bio-Pulse) để đập vỡ giáp của chúng!",
-                "Tôm Súng phá giáp cực nhanh. Đặt Cò Chữa Lành ở Mặt Nước ngay phía trên đồng đội Đáy để hồi máu xuyên tầng!"),
+                "Lặn Xuống Đáy Sâu", "Màn 3 · Mở khóa Đáy Biển (Q)", 150, 2, 60, 55, false, true,
+                "KHÁI NIỆM MỚI: ĐÁY BIỂN Ô NHIỄM & PHÍM Q",
+                "• Bấm phím Q để LẶN xuống Đáy Biển hoặc NỔI lên Mặt Nước (chỉ được đặt đồng minh ở tầng Bio-Bot đang đứng!).\n• ĐÁY BIỂN ô nhiễm nặng hơn → Quái dưới đáy TRÂU HƠN +40% MÁU!\n• Lặn xuống click cắt Dây Cước để CỨU Cá Xạ Thủ miễn phí và thả Bạch Tuộc làm chậm Mặt Nước!",
+                "Chương 1 — Tầng Đáy Ô Nhiễm: Bể 3D mở khóa mặt đáy! Tầng không có Bio-Bot sẽ bị mờ. Bấm Q để lặn xuống cứu cá và trấn giữ đáy bể!",
+                "Bấm Q để lặn/nổi. Tầng Đáy có quái trâu hơn +40% máu — hãy cứu Cá Xạ Thủ và đặt Bạch Tuộc hỗ trợ lên trên!"),
             new LevelSpec(
-                "Eo Gương Dòng Đảo", "Màn 4 · Cột nước đẩy +55%", 225, 3, 55, 60, false, true,
-                "Hải Ly Đê (xuyên 2 quái), Cá Ống Phun (bắn lên Mặt)",
-                "Chương 2 — Làn Sóng Ngầm: Bè Hai Mạn có thể lặn bất ngờ giữa đường! Cá Ống Phun ở Đáy vừa bắn lên Mặt Nước vừa tăng +55% tốc độ cho đồng minh ngay phía trên.",
-                "Thử đặt Cá Ống Phun ở Đáy ngay dưới Vịt Bắn Bọt ở Mặt Nước để kích hoạt Cột Nước Đẩy!"),
+                "Hải Lưu Phá Giáp", "Màn 4 · Lon Kén & Tôm Súng", 175, 3, 55, 65, false, true,
+                "KHÁI NIỆM MỚI: GIÁP SẮT & TÔM SÚNG PHÁ GIÁP",
+                "• LON KÉN có vỏ sắt giảm sát thương từ đòn thường.\n• TÔM SÚNG (⚡ Phá Giáp) dưới Đáy hoặc bấm R (Bio-Pulse) sẽ đập vỡ giáp của chúng!\n• CÒ HỒI MÁU (✚ Hồi ↓) đặt trên Mặt sẽ chữa lành đồng đội ngay ô dưới Đáy!",
+                "Chương 2 — Giáp Kim Loại: Rác kim loại Lon Kén đã chìm xuống đáy và nổi trên mặt. Tôm Súng và Cò Hồi Máu gia nhập đội hình!",
+                "Dùng Tôm Súng hoặc nhấn R (Bio-Pulse) để vỡ giáp Lon Kén. Cò Hồi Máu trên Mặt chữa lành cho đồng minh dưới Đáy!"),
             new LevelSpec(
-                "Bãi Đá San Hô", "Màn 5 · Bồ Nông & San Hô Gai", 250, 3, 52, 70, false, true,
-                "Bồ Nông (đẩy lùi), San Hô Gai (tường chắn Đáy)",
-                "Chương 2 — Tường Đáy Biển: Lọc Bẩn hồi máu và Mạt Cào tràn qua Đáy Biển. Dựng pháo đài San Hô Gai dưới Đáy và Bồ Nông đẩy lùi trên Mặt Nước!",
-                "Đặt San Hô Gai chắn đầu hàng dưới Đáy. Chuột phải vào Mảnh Vỏ hoặc Cục Chì để dựng khiên khẩn cấp!"),
+                "Eo Gương Dòng Đảo", "Màn 5 · Cột Nước & Hải Ly", 200, 3, 55, 75, false, true,
+                "KHÁI NIỆM MỚI: CỘT NƯỚC ĐẨY +55% & BÈ HAI MẠN",
+                "• BÈ HAI MẠN biết tự lặn/nổi đổi tầng ở giữa bể!\n• CÁ ỐNG PHUN (▲ Bắn ↑) dưới Đáy vừa bắn lên Mặt Nước vừa tạo Cột Nước Đẩy tăng +55% tốc độ cho ô ngay trên nó!\n• HẢI LY ĐÊ (» Xuyên 2): Bắn xuyên 2 quái, sống được cả 2 tầng!",
+                "Chương 2 — Làn Sóng Ngầm: Quái rác bắt đầu chuyển tầng bất ngờ. Hãy tận dụng Cá Ống Phun và Hải Ly Đê kiểm soát cả hai mặt bể!",
+                "Đặt Cá Ống Phun dưới Đáy ngay bên dưới Vịt/Hải Ly ở Mặt Nước để kích hoạt Cột Nước Đẩy!"),
             new LevelSpec(
-                "Trạm Xung Thủy Triều", "Màn 6 · Sứa Pha Lê & Lươn Điện", 275, 3, 50, 80, false, true,
-                "Sứa Pha Lê (khúc xạ 2 tầng), Lươn Điện (EMP 2 tầng)",
-                "Chương 2 — Bão Dầu Đen: Phao Hắc vỡ để lại Váng Dầu. Kích nổ Pin Rò (chuột phải) và thả Lươn Điện quét sạch cả 2 tầng cùng lúc!",
-                "Chuột phải vào Mảnh Gương để Sứa Pha Lê bắn cả 2 tầng. Bấm Shift (Hydro-Dash) húc Chai Phao bowling quái!"),
+                "Bãi Đá San Hô", "Màn 6 · Bồ Nông & San Hô Gai", 225, 3, 50, 85, false, true,
+                "KHÁI NIỆM MỚI: SAN HÔ GAI & LỌC BẨN HỒI MÁU",
+                "• LỌC BẨN dưới Đáy tự hồi máu và cực trâu.\n• SAN HÔ GAI (🛡 Gai Đáy): Pháo đài máu siêu dày dưới Đáy, phản gai sát thương cao.\n• BỒ NÔNG (« Đẩy Lùi): Vỗ cánh hất lùi quái trên Mặt Nước!",
+                "Chương 2 — Rạn San Hô: Quái đáy ngày càng nặng và lì đòn. Hãy dựng tường San Hô Gai dưới đáy để chặn đứng chúng!",
+                "Đặt San Hô Gai ở Đáy để giữ chân quái trâu +40% máu. Bồ Nông đẩy lùi trên Mặt Nước!"),
             new LevelSpec(
-                "Vịnh Lọc Dầu", "Màn 7 · Thanh lọc Đại Dương", 300, 3, 48, 90, false, true,
-                "Hải Âu Lưới, Cặp Cá Hề, Cá Koi Lọc dầu",
-                "Chương 3 — Dòng Chảy Xanh: Cá Koi Lọc hút sạch Váng Dầu và tăng Độ Trong Nước lên 100% để kích hoạt Dòng Chảy Xanh (x2 tốc độ bắn)!",
-                "Theo dõi thanh Độ Trong Nước bên phải: đạt 100% sẽ bùng nổ Dòng Chảy Xanh trong 10 giây!"),
+                "Trạm Xung Thủy Triều", "Màn 7 · Sứa Pha Lê & Lươn Điện", 250, 3, 50, 95, false, true,
+                "KHÁI NIỆM MỚI: LƯƠN ĐIỆN EMP 2 TẦNG & VÁNG DẦU",
+                "• PHAO HẮC vỡ tung để lại Váng Dầu làm đục nước.\n• LƯƠN ĐIỆN (⚡ EMP 2T): Phóng điện xuyên cả Đáy lẫn Mặt Nước!\n• Chuột phải vào PIN RÒ để kích nổ EMP phá giáp cả 2 tầng!",
+                "Chương 3 — Bão Dầu Đen: Dầu loang và Ống Rè gây nhiễu tấn công đồng loạt. Huy động Sứa Pha Lê và Lươn Điện phản công!",
+                "Bấm Q linh hoạt để dọn dầu, kích nổ Pin Rò và thả Lươn Điện quét sạch cả 2 tầng!"),
             new LevelSpec(
-                "Rạn Sứa Phát Sáng", "Màn 8 · Hồng Hạc & Cá Nhồng", 325, 4, 48, 105, false, true,
-                "Hồng Hạc Xung, Cá Nhồng Ngư Lôi",
-                "Chương 3 — Sứa Nilon Độc: Đàn Sứa Nilon và Cánh Lướt đổi làn liên tục! Mở Van Khí (chuột phải) ở Đáy để cường hóa Hồng Hạc Xung ở Mặt Nước.",
-                "Mở Van Khí ở Đáy Biển để tạo xung định kỳ cả 2 tầng và buff sát thương cho Hồng Hạc Xung!"),
+                "Vịnh Lọc Dầu", "Màn 8 · Cá Koi Lọc & Dòng Chảy Xanh", 275, 4, 48, 110, false, true,
+                "KHÁI NIỆM MỚI: THANH LỌC ĐỘ TRONG NƯỚC 100%",
+                "• CÁ KOI LỌC (✦ Lọc Dầu) tự hút Váng Dầu lân cận và đẩy thanh ĐỘ TRONG NƯỚC lên 100%.\n• Khi Độ Trong Nước đạt 100%, DÒNG CHẢY XANH kích hoạt 10s: x2 tốc độ bắn & mưa năng lượng!",
+                "Chương 3 — Thanh Lọc Đại Dương: Thùng Húc và Bầy Rách tràn vào. Cá Koi Lọc, Hải Âu Lưới và Cặp Cá Hề sẵn sàng!",
+                "Giữ Đáy sạch và đẩy Độ Trong Nước lên 100% để kích hoạt Dòng Chảy Xanh!"),
             new LevelSpec(
-                "Hải Lưu Đại Thủy", "Màn 9 · Đội Hình Tối Thượng", 350, 4, 50, 120, false, true,
-                "Ếch Bọt Biển (2 dạng), Cua Thợ Máy (sửa 2 tầng)",
-                "Chương 3 — Trước Cơn Bão Lớn: Toàn bộ 20 Sinh Vật Biển đã hội tụ! Bè Neo và Thùng Húc tiến đánh đồng thời cả 2 tầng.",
-                "Ếch Bọt Biển: thả trên Mặt thành đại bác, thả dưới Đáy làm chậm cả hàng! Cua Thợ Máy sửa cả 2 tầng."),
+                "Rạn Sứa Phát Sáng", "Màn 9 · Đội Hình Tối Thượng", 325, 4, 48, 130, false, true,
+                "KHÁI NIỆM MỚI: HỒNG HẠC, CÁ NHỒNG, ẾCH & CUA THỢ",
+                "• Toàn bộ 20 Sinh Vật Biển đã mở khóa!\n• Mở VAN KHÍ (chuột phải) dưới Đáy để buff cực đại cho Hồng Hạc Xung!\n• Ếch Bọt đổi dạng theo tầng, Cua Thợ Máy sửa cả 2 tầng!",
+                "Chương 3 — Trước Giờ G: Bè Neo, Sứa Nilon và Cánh Lướt tổng tiến công cả hai mặt bể 3D!",
+                "Kết hợp Van Khí + Hồng Hạc + Cua Thợ Máy để giữ vững cả 2 tầng!"),
             new LevelSpec(
-                "Đê Xanh Cảm Tử", "Màn 10 · ĐẠI CHIẾN SIÊU BOSS", 400, 4, 50, 220, true, true,
-                "HOÀN THÀNH CHIẾN DỊCH!",
-                "CHƯƠNG CUỐI — SIÊU TÀU XẢ ĐỘC: Con tàu rác khổng lồ đang tiến vào Cửa Đê! Nó liên tục đổi giữa Mặt Nước và Đáy Biển. Huy động toàn lực đánh bại nó!",
-                "Quan sát Boss đổi tầng ở màn hình 2 tầng, dựng phòng tuyến cả trên lẫn dưới và dồn hỏa lực hạ gục Boss!")
+                "Đê Xanh Cảm Tử", "Màn 10 · ĐẠI CHIẾN SIÊU BOSS", 375, 4, 50, 240, true, true,
+                "CẢNH BÁO ĐỎ: SIÊU TÀU XẢ ĐỘC!",
+                "• TÀU XẢ ĐỘC có lượng máu khổng lồ, liên tục lặn/nổi giữa Mặt Nước và Đáy Biển, xả dầu và thả viện binh!\n• Dùng Q bám theo tầng của Boss, kích hoạt Dòng Chảy Xanh và dồn hỏa lực 2 tầng tiêu diệt nó!",
+                "CHƯƠNG CUỐI: Cuộc chiến quyết định số phận Đê Xanh! Huy động toàn bộ đội quân đại dương đánh bại Tàu Xả Độc!",
+                "Theo dõi bóng mờ của Boss khi nó đổi tầng, bấm Q bám sát và dồn hỏa lực xuyên tầng!")
         };
 
-        // 20 100% Aquatic Guardians with instant-read ShortTags!
+        // 20 100% Aquatic Guardians with gradual Stage 1..9 unlock curve!
         public static readonly AllySpec[] Allies =
         {
-            // Stage 1 (0..2) — super clean 3-card starter deck!
-            new AllySpec("Rái Cá", "Tạo năng lượng", "☀ +25 NL", B, L, Ability.Income, 50, 6, 1, 25, 4.5f, "Giống Hoa Hướng Dương: tự thả Hạt Vàng +25 Năng Lượng. Đặt được ở cả 2 tầng!"),
-            new AllySpec("Vịt Bắn Bọt", "Bắn tia nước", "● Bắn Mặt", S, L, Ability.Shot, 50, 7, 1, 2, 4.0f, "Phun tia nước dọc hàng Mặt Nước để tiêu diệt quái rác."),
-            new AllySpec("Rùa Khiên", "Tường chắn", "🛡 Chắn", S, L, Ability.Guard, 50, 24, 1, 1, 9.0f, "Mai rùa siêu cứng chặn đứng quái rác ở Mặt Nước, phản đòn khi bị cắn."),
-            // Stage 2 (3..4) — Deep unlocks!
-            new AllySpec("Cá Xạ Thủ", "Bắn bọt đáy", "● Bắn Đáy", D, L, Ability.Shot, 50, 8, 2, 2, 4.0f, "Bắn bọt dọc hàng Đáy Biển. Click cắt Dây Cước sẽ cứu miễn phí!"),
-            new AllySpec("Bạch Tuộc", "Hãm Mặt Nước", "❄ Chậm ↑", D, O, Ability.Slow, 75, 9, 2, 3, 5.8f, "Đặt dưới Đáy: vươn xúc tu lên làm chậm quái rác ở Mặt Nước!"),
-            // Stage 3 (5..6)
-            new AllySpec("Tôm Súng", "Phá giáp", "⚡ Phá Giáp", D, L, Ability.Zap, 100, 8, 3, 3, 6.0f, "Búng càng siêu âm siêu nhanh dưới Đáy, đập vỡ giáp sắt Lon Kén!"),
-            new AllySpec("Cò Hồi Máu", "Hồi máu Đáy", "✚ Hồi ↓", S, O, Ability.Repair, 75, 8, 3, 4, 6.5f, "Đặt trên Mặt: lặn mỏ xuống hồi máu cho đồng minh ngay phía dưới Đáy!"),
-            // Stage 4 (7..8)
-            new AllySpec("Hải Ly Đê", "Xuyên 2 quái", "» Xuyên 2", B, L, Ability.Pierce, 125, 9, 4, 3, 6.8f, "Phóng giáo nước xuyên qua 2 quái rác gần nhất. Đặt được cả 2 tầng!"),
-            new AllySpec("Cá Ống Phun", "Bắn lên Mặt", "▲ Bắn ↑", D, O, Ability.Shot, 100, 8, 4, 3, 6.2f, "Đặt dưới Đáy: phun vòi nước lên Mặt Nước & buff +55% tốc độ ô phía trên!"),
-            // Stage 5 (9..10)
-            new AllySpec("Bồ Nông", "Đẩy lùi sóng", "« Đẩy Lùi", S, L, Ability.Pull, 100, 8, 5, 2, 7.0f, "Vỗ cánh tạo sóng đẩy lùi quái rác trên Mặt Nước."),
-            new AllySpec("San Hô Gai", "Tường Đáy", "🛡 Gai Đáy", D, L, Ability.Guard, 75, 30, 5, 2, 10f, "Rạn san hô siêu bền dưới Đáy Biển, phản gai sát thương cao."),
-            // Stage 6 (11..12)
-            new AllySpec("Sứa Pha Lê", "Gương 2 tầng", "⇄ 2 Tầng", B, X, Ability.Reflect, 100, 8, 6, 3, 6.5f, "Bắn cả 2 tầng khi có Mảnh Gương kích hoạt ở cùng cột!"),
-            new AllySpec("Lươn Điện", "Xung EMP", "⚡ EMP 2T", D, X, Ability.Pulse, 150, 9, 6, 4, 8.5f, "Phát xung điện phá giáp cả 2 tầng & tạo cột nước đẩy cho ô trên!"),
-            // Stage 7 (13..15)
-            new AllySpec("Hải Âu Lưới", "Hãm Đáy", "❄ Chậm ↓", S, O, Ability.Slow, 75, 9, 7, 3, 6.2f, "Đặt trên Mặt: thả lưới tảo làm chậm toàn bộ quái dưới Đáy!"),
-            new AllySpec("Cặp Cá Hề", "Liên kết", "⇄ Ghép Đôi", B, X, Ability.Link, 125, 9, 7, 4, 7.2f, "Bắn cả 2 tầng khi có bất kỳ đồng minh nào ở ô đối diện!"),
-            new AllySpec("Cá Koi Lọc", "Dọn dầu", "✦ Lọc Dầu", D, L, Ability.Clean, 100, 12, 7, 3, 6.2f, "Tự hút sạch Váng Dầu lân cận, tăng Độ Trong Nước & bắn bọt."),
-            // Stage 8 (16..17)
-            new AllySpec("Hồng Hạc", "Xung Van Khí", "★ Xung 2T", S, X, Ability.Echo, 175, 9, 8, 5, 9.0f, "Phóng xung xuyên 2 tầng cực mạnh, tăng sát thương khi có Van Khí!"),
-            new AllySpec("Cá Nhồng", "Ngư lôi ↑", "» Xuyên ↑", D, O, Ability.Pierce, 150, 10, 8, 4, 8.0f, "Phóng ngư lôi từ Đáy xuyên 2 quái Mặt Nước & tạo cột đẩy!"),
-            // Stage 9 (18..19)
-            new AllySpec("Ếch Bọt", "2 Dạng", "★ Biến Hình", B, L, Ability.Habitat, 125, 11, 9, 4, 7.0f, "Mặt Nước: đại bác hạng nặng. Đáy Biển: đóng băng làm chậm cả hàng!"),
-            new AllySpec("Cua Thợ Máy", "Sửa 2 tầng", "✚ Sửa 2T", D, X, Ability.Repair, 125, 12, 9, 5, 7.5f, "Vá giáp & hồi máu đồng minh ở cả 2 tầng tại cùng vị trí.")
+            // Stage 1 (0..1): ONLY Rái Cá & Vịt Bắn Bọt!
+            new AllySpec("Rái Cá", "Tạo năng lượng", "☀ +25 NL", B, L, Ability.Income, 50, 6, 1, 25, 4.8f, "Tự thả Hạt Vàng +25 NL. Đặt được ở cả 2 tầng!"),
+            new AllySpec("Vịt Bắn Bọt", "Bắn tia nước", "● Bắn Mặt", S, L, Ability.Shot, 50, 7, 1, 2, 4.2f, "Phun tia nước dọc hàng Mặt Nước tiêu diệt quái rác."),
+            // Stage 2 (2): Rùa Khiên!
+            new AllySpec("Rùa Khiên", "Tường chắn", "🛡 Chắn", S, L, Ability.Guard, 50, 24, 2, 1, 9.5f, "Mai rùa siêu cứng chặn đứng quái rác ở Mặt Nước, phản đòn khi bị cắn."),
+            // Stage 3 (3..4): Deep opens — Cá Xạ Thủ & Bạch Tuộc!
+            new AllySpec("Cá Xạ Thủ", "Bắn bọt đáy", "● Bắn Đáy", D, L, Ability.Shot, 50, 8, 3, 2, 4.2f, "Bắn bọt dọc hàng Đáy Biển. Cắt Dây Cước để cứu miễn phí!"),
+            new AllySpec("Bạch Tuộc", "Hãm Mặt Nước", "❄ Chậm ↑", D, O, Ability.Slow, 75, 9, 3, 3, 6.0f, "Đặt dưới Đáy: vươn xúc tu lên làm chậm quái rác ở Mặt Nước!"),
+            // Stage 4 (5..6)
+            new AllySpec("Tôm Súng", "Phá giáp", "⚡ Phá Giáp", D, L, Ability.Zap, 100, 9, 4, 3, 6.0f, "Búng càng siêu âm dưới Đáy, đập vỡ giáp sắt Lon Kén!"),
+            new AllySpec("Cò Hồi Máu", "Hồi máu Đáy", "✚ Hồi ↓", S, O, Ability.Repair, 75, 8, 4, 4, 6.5f, "Đặt trên Mặt: lặn mỏ xuống hồi máu cho đồng minh ô Đáy bên dưới!"),
+            // Stage 5 (7..8)
+            new AllySpec("Hải Ly Đê", "Xuyên 2 quái", "» Xuyên 2", B, L, Ability.Pierce, 125, 9, 5, 3, 6.8f, "Phóng giáo nước xuyên 2 quái rác gần nhất. Sống được cả 2 tầng!"),
+            new AllySpec("Cá Ống Phun", "Bắn lên Mặt", "▲ Bắn ↑", D, O, Ability.Shot, 100, 9, 5, 3, 6.2f, "Đặt dưới Đáy: phun lên Mặt Nước & tạo Cột Nước Đẩy +55% tốc độ cho ô trên!"),
+            // Stage 6 (9..10)
+            new AllySpec("Bồ Nông", "Đẩy lùi sóng", "« Đẩy Lùi", S, L, Ability.Pull, 100, 8, 6, 2, 7.0f, "Vỗ cánh tạo sóng đẩy lùi quái rác trên Mặt Nước."),
+            new AllySpec("San Hô Gai", "Tường Đáy", "🛡 Gai Đáy", D, L, Ability.Guard, 75, 32, 6, 2, 10f, "Pháo đài san hô siêu bền dưới Đáy Biển, phản gai sát thương cao."),
+            // Stage 7 (11..12)
+            new AllySpec("Sứa Pha Lê", "Gương 2 tầng", "⇄ 2 Tầng", B, X, Ability.Reflect, 100, 8, 7, 3, 6.5f, "Bắn cả 2 tầng khi có Mảnh Gương kích hoạt ở cùng cột!"),
+            new AllySpec("Lươn Điện", "Xung EMP", "⚡ EMP 2T", D, X, Ability.Pulse, 150, 10, 7, 4, 8.5f, "Phát xung điện phá giáp cả 2 tầng & tạo cột nước đẩy cho ô trên!"),
+            // Stage 8 (13..15)
+            new AllySpec("Hải Âu Lưới", "Hãm Đáy", "❄ Chậm ↓", S, O, Ability.Slow, 75, 9, 8, 3, 6.2f, "Đặt trên Mặt: thả lưới tảo làm chậm toàn bộ quái dưới Đáy!"),
+            new AllySpec("Cặp Cá Hề", "Liên kết", "⇄ Ghép Đôi", B, X, Ability.Link, 125, 9, 8, 4, 7.2f, "Bắn cả 2 tầng khi có đồng minh ở ô đối diện!"),
+            new AllySpec("Cá Koi Lọc", "Dọn dầu", "✦ Lọc Dầu", D, L, Ability.Clean, 100, 12, 8, 3, 6.2f, "Hút sạch Váng Dầu lân cận, tăng Độ Trong Nước & bắn bọt."),
+            // Stage 9 (16..19)
+            new AllySpec("Hồng Hạc", "Xung Van Khí", "★ Xung 2T", S, X, Ability.Echo, 175, 9, 9, 5, 9.0f, "Phóng xung xuyên 2 tầng cực mạnh, tăng sát thương khi có Van Khí!"),
+            new AllySpec("Cá Nhồng", "Ngư lôi ↑", "» Xuyên ↑", D, O, Ability.Pierce, 150, 10, 9, 4, 8.0f, "Phóng ngư lôi từ Đáy xuyên 2 quái Mặt Nước & tạo cột đẩy!"),
+            new AllySpec("Ếch Bọt", "2 Dạng", "★ Biến Hình", B, L, Ability.Habitat, 125, 11, 9, 4, 7.0f, "Mặt Nước: đại bác hạng nặng. Đáy Biển: làm chậm cả hàng!"),
+            new AllySpec("Cua Thợ Máy", "Sửa 2 tầng", "✚ Sửa 2T", D, X, Ability.Repair, 125, 12, 9, 5, 7.5f, "Vá giáp & hồi máu đồng minh ở cả 2 tầng tại cùng cột.")
         };
 
+        // Turned speed back up for exciting, balanced challenge on the 11-column 3D pool!
         public static readonly EnemySpec[] Enemies =
         {
-            new EnemySpec("Váng Quệt", S, Trait.Skim, 7, .22f, 1, 10, "Trôi chậm trên Mặt Nước, tăng tốc khi qua Váng Dầu."),
-            new EnemySpec("Túi Chộp", S, Trait.School, 6, .25f, 1, 10, "Đi theo bầy cùng hàng sẽ bơi nhanh hơn một chút."),
-            new EnemySpec("Mạt Cào", D, Trait.Burrow, 9, .21f, 2, 12, "Bò sát Đáy Biển, đỡ một phần đòn thường."),
-            new EnemySpec("Lon Kén", B, Trait.Shell, 14, .18f, 3, 15, "Giáp sắt giảm sát thương cho tới khi bị Tôm Súng / Xung phá vỡ."),
-            new EnemySpec("Bè Hai Mạn", B, Trait.Ferry, 13, .21f, 4, 18, "Lặn hoặc nổi bất ngờ sang tầng kia ở giữa sân!"),
-            new EnemySpec("Lọc Bẩn", D, Trait.Filter, 13, .19f, 5, 16, "Tự hồi máu theo nhịp và kháng bọt yếu."),
-            new EnemySpec("Phao Hắc", S, Trait.Spill, 14, .20f, 6, 18, "Vỡ tung để lại Váng Dầu cản đường khi bị hạ."),
-            new EnemySpec("Ống Rè", D, Trait.Jam, 15, .19f, 6, 18, "Gây nhiễu làm chậm đồng minh ở tầng đối diện."),
-            new EnemySpec("Thùng Húc", B, Trait.Ram, 20, .21f, 7, 22, "Đòn húc mạnh vào tường chắn."),
-            new EnemySpec("Bầy Rách", B, Trait.Split, 16, .21f, 7, 20, "Tách thành 2 mảnh vi nhựa khi vỡ!"),
-            new EnemySpec("Cánh Lướt", B, Trait.Drift, 13, .28f, 8, 20, "Chuyển sang hàng bên cạnh khi gặp phòng thủ."),
-            new EnemySpec("Bè Neo", B, Trait.Anchor, 32, .14f, 9, 30, "Kháng đẩy lùi và tăng tốc đồng đội cùng tầng."),
-            new EnemySpec("Sứa Nilon", D, Trait.Phase, 18, .22f, 8, 24, "Lấp lánh độc tố, kháng đòn thường và làm chậm đồng minh gần."),
-            new EnemySpec("Tàu Xả Độc", B, Trait.Boss, 170, .09f, 10, 150, "SIÊU BOSS: Đổi tầng liên tục, xả dầu và thả viện binh!")
+            new EnemySpec("Váng Quệt", S, Trait.Skim, 8, .36f, 1, 10, "Quái mặt nước cơ bản, tăng tốc khi qua Váng Dầu."),
+            new EnemySpec("Túi Chộp", S, Trait.School, 7, .43f, 2, 10, "Bơi nhanh hơn khi đi theo bầy cùng hàng."),
+            new EnemySpec("Mạt Cào", D, Trait.Burrow, 11, .34f, 3, 12, "Bò sát Đáy Biển, trâu hơn +40% máu & giảm đòn thường."),
+            new EnemySpec("Lon Kén", B, Trait.Shell, 16, .30f, 4, 15, "Giáp sắt giảm sát thương cho tới khi bị Tôm Súng / Xung phá vỡ."),
+            new EnemySpec("Bè Hai Mạn", B, Trait.Ferry, 15, .34f, 5, 18, "Lặn hoặc nổi bất ngờ sang tầng kia ở giữa bể!"),
+            new EnemySpec("Lọc Bẩn", D, Trait.Filter, 16, .31f, 6, 16, "Quái đáy siêu lì, tự hồi máu theo nhịp."),
+            new EnemySpec("Phao Hắc", S, Trait.Spill, 16, .33f, 7, 18, "Vỡ tung để lại Váng Dầu cản đường khi bị hạ."),
+            new EnemySpec("Ống Rè", D, Trait.Jam, 17, .30f, 7, 18, "Gây nhiễu làm chậm đồng minh ở tầng đối diện."),
+            new EnemySpec("Thùng Húc", B, Trait.Ram, 24, .34f, 8, 22, "Đòn húc mạnh phá tường chắn."),
+            new EnemySpec("Bầy Rách", B, Trait.Split, 18, .35f, 8, 20, "Tách thành 2 mảnh vi nhựa chạy nhanh khi vỡ!"),
+            new EnemySpec("Cánh Lướt", B, Trait.Drift, 15, .48f, 9, 20, "Chuyển sang hàng bên cạnh khi gặp phòng thủ."),
+            new EnemySpec("Bè Neo", B, Trait.Anchor, 36, .23f, 9, 30, "Kháng đẩy lùi và tăng tốc đồng đội cùng tầng."),
+            new EnemySpec("Sứa Nilon", D, Trait.Phase, 20, .37f, 9, 24, "Lấp lánh độc tố dưới Đáy, kháng đòn thường."),
+            new EnemySpec("Tàu Xả Độc", B, Trait.Boss, 200, .14f, 10, 150, "SIÊU BOSS: Đổi tầng liên tục, xả dầu và thả viện binh!")
         };
 
         public static readonly TrashSpec[] Trash =
         {
-            new TrashSpec("Chai Phao", S, TrashEffect.Float, 25, 1, "Đẩy Trái: +50 NL | Đẩy Phải: BOWLING", "Đẩy sang trái vào bến nhận +50 NL! Đẩy sang phải để bowling húc bay quái!"),
-            new TrashSpec("Mảnh Vỏ", B, TrashEffect.Shell, 25, 1, "Click: +25 NL | Chuột phải: Khiên", "Click thu +25 NL, hoặc Chuột phải dựng ngay Khiên chắn tạm thời."),
-            new TrashSpec("Dây Cước", D, TrashEffect.Filament, 25, 2, "Click: CỨU CÁ MIỄN PHÍ!", "Click cắt dây GIẢI CỨU Cá Xạ Thủ miễn phí ngay tại ô!"),
-            new TrashSpec("Cục Chì", D, TrashEffect.Ballast, 30, 2, "Click: +30 NL | Chuột phải: Khiên Mặt", "Click thu +30 NL, hoặc Chuột phải phóng phao chắn lên Mặt Nước."),
-            new TrashSpec("Mảnh Gương", B, TrashEffect.Mirror, 25, 4, "Chuột phải: Dựng Gương 2 Tầng", "Chuột phải dựng gương kết nối đòn bắn Sứa Pha Lê xuyên 2 tầng!"),
-            new TrashSpec("Kiện Nổi", B, TrashEffect.Capsule, 30, 4, "Click: +30 NL | Chuột phải: Đổi tầng", "Chuột phải chuyển kiện sang tầng kia để mở chỗ trống."),
-            new TrashSpec("Pin Rò", B, TrashEffect.Battery, 30, 6, "Chuột phải: Nổ EMP 2 Tầng!", "Chuột phải kích nổ xung EMP phá giáp & sát thương cả 2 tầng!"),
-            new TrashSpec("Váng Dầu", S, TrashEffect.Spill, 20, 6, "Click: Dọn dầu | Chuột phải: Đốt cháy", "Làm đục nước & tăng tốc Váng Quệt. Click dọn sạch ngay!"),
-            new TrashSpec("Van Khí", D, TrashEffect.Vent, 35, 8, "Chuột phải: Mở Van Cột Nước", "Chuột phải mở van phun xung 2 tầng & tạo cột đẩy +55% tốc độ cho ô trên!"),
-            new TrashSpec("Lưới Cuộn", B, TrashEffect.Loom, 35, 8, "Chuột phải: Giăng lưới tầng kia", "Chuột phải giăng lưới làm chậm cả hàng ở tầng đối diện trong 20s!")
+            new TrashSpec("Chai Phao", S, TrashEffect.Float, 20, 1, "Đẩy Trái: +50 NL | Đẩy Phải: BOWLING", "Đẩy sang trái vào bến nhận +50 NL! Đẩy sang phải húc bay quái!"),
+            new TrashSpec("Mảnh Vỏ", B, TrashEffect.Shell, 25, 2, "Click: +25 NL | Chuột phải: Khiên", "Click thu +25 NL, hoặc Chuột phải dựng ngay Khiên chắn tạm thời."),
+            new TrashSpec("Dây Cước", D, TrashEffect.Filament, 25, 3, "Click: CỨU CÁ MIỄN PHÍ!", "Lặn xuống (Q) rồi click cắt dây GIẢI CỨU Cá Xạ Thủ miễn phí!"),
+            new TrashSpec("Cục Chì", D, TrashEffect.Ballast, 30, 3, "Click: +30 NL | Chuột phải: Khiên Mặt", "Click thu +30 NL, hoặc Chuột phải phóng phao chắn lên Mặt Nước."),
+            new TrashSpec("Mảnh Gương", B, TrashEffect.Mirror, 25, 5, "Chuột phải: Dựng Gương 2 Tầng", "Chuột phải dựng gương kết nối đòn bắn Sứa Pha Lê xuyên 2 tầng!"),
+            new TrashSpec("Kiện Nổi", B, TrashEffect.Capsule, 30, 5, "Click: +30 NL | Chuột phải: Đổi tầng", "Chuột phải chuyển kiện sang tầng kia để mở chỗ trống."),
+            new TrashSpec("Pin Rò", B, TrashEffect.Battery, 30, 7, "Chuột phải: Nổ EMP 2 Tầng!", "Chuột phải kích nổ xung EMP phá giáp & sát thương cả 2 tầng!"),
+            new TrashSpec("Váng Dầu", S, TrashEffect.Spill, 20, 7, "Click: Dọn dầu | Chuột phải: Đốt cháy", "Làm đục nước & tăng tốc Váng Quệt. Click dọn sạch ngay!"),
+            new TrashSpec("Van Khí", D, TrashEffect.Vent, 35, 9, "Chuột phải: Mở Van Cột Nước", "Chuột phải mở van phun xung 2 tầng & tạo cột đẩy +55% tốc độ cho ô trên!"),
+            new TrashSpec("Lưới Cuộn", B, TrashEffect.Loom, 35, 9, "Chuột phải: Giăng lưới tầng kia", "Chuột phải giăng lưới làm chậm cả hàng ở tầng đối diện trong 20s!")
         };
 
         public static readonly UpgradeSpec[] Upgrades =
@@ -274,7 +287,7 @@ namespace BioBot
         public static readonly AchievementSpec[] Achievements =
         {
             new AchievementSpec("first_win", "Người Gác Đê", "Hoàn thành màn đầu tiên Bến Gom Nắng Mai.", 25),
-            new AchievementSpec("first_rescue", "Cứu Tinh Đại Dương", "Cắt dây cước giải cứu Cá Xạ Thủ dưới đáy biển.", 25),
+            new AchievementSpec("first_rescue", "Cứu Tinh Đại Dương", "Lặn xuống cắt dây cước cứu Cá Xạ Thủ dưới Đáy.", 25),
             new AchievementSpec("bottle_bowler", "Vua Bowling Rác", "Đẩy Chai Phao húc trúng kẻ địch đang tiến tới.", 30),
             new AchievementSpec("dock_master", "Tái Chế Chuyên Nghiệp", "Đưa 3 Chai Phao về bến gom trong một màn.", 30),
             new AchievementSpec("cross_layer", "Bậc Thầy Hai Tầng", "Kích hoạt tương tác xuyên tầng (Gương/Van/Bạch Tuộc/Cá Ống).", 30),
@@ -285,7 +298,6 @@ namespace BioBot
             new AchievementSpec("endless_5", "Bền Bỉ Vô Tận", "Vượt qua Đợt 5 trong chế độ Sinh Tồn Vô Tận.", 60)
         };
 
-        // Sprite row index in RosterV2.png (kept consistent after swapping Rái Cá to slot 0!)
         public static readonly int[] AllySpriteRow =
         {
             2, 0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19
