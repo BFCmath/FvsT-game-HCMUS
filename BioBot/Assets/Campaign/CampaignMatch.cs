@@ -167,6 +167,11 @@ namespace BioBot
         public int BottlesDocked { get; private set; }
         public int FishRescued { get; private set; }
         public int Kills { get; private set; }
+        public int PlantedIncomeCount { get; private set; }
+        public int PlantedFighterCount { get; private set; }
+        public int OrbsCollectedCount { get; private set; }
+        public int BottlesPushedCount { get; private set; }
+        public int TrashUsedCount { get; private set; }
         public float NextAttack => nextArrival < arrivals.Count ? Mathf.Max(0f, arrivals[nextArrival].Time - Time) : -1f;
         public int NextRow => nextArrival < arrivals.Count ? arrivals[nextArrival].Row : -1;
         public Layer NextLayer => nextArrival < arrivals.Count ? arrivals[nextArrival].Layer : Layer.Surface;
@@ -322,16 +327,16 @@ namespace BioBot
 
         private void PlaceStartingTrash()
         {
-            int effLevel = Endless ? 8 : Level;
+            int effLevel = Endless ? 10 : Level;
             AddWaste(0, Layer.Surface, 2, 3);
             AddWaste(1, Layer.Surface, 3, 2);
             if (effLevel == 1) { AddWaste(0, Layer.Surface, 1, 5); return; }
             AddWaste(2, Layer.Deep, 2, 2);
             AddWaste(3, Layer.Deep, 1, 4);
-            if (effLevel >= 3) { AddWaste(4, Layer.Deep, 2, 4); AddWaste(5, Layer.Surface, 0, 5); }
-            if (effLevel >= 4) { AddWaste(6, Layer.Deep, 3, 3); AddWaste(7, Layer.Surface, 2, 6); }
-            if (effLevel >= 5) { AddWaste(8, Layer.Deep, 2, 5); AddWaste(9, Layer.Surface, 4, 5); }
-            if (effLevel >= 6) { AddWaste(2, Layer.Deep, 4, 3); AddWaste(0, Layer.Surface, 0, 4); }
+            if (effLevel >= 4) { AddWaste(4, Layer.Deep, 2, 4); AddWaste(5, Layer.Surface, 0, 5); }
+            if (effLevel >= 6) { AddWaste(6, Layer.Deep, 3, 3); AddWaste(7, Layer.Surface, 2, 6); }
+            if (effLevel >= 8) { AddWaste(8, Layer.Deep, 2, 5); AddWaste(9, Layer.Surface, 4, 5); }
+            if (effLevel >= 9) { AddWaste(2, Layer.Deep, 4, 3); AddWaste(0, Layer.Surface, 0, 4); }
         }
 
         private void AddWaste(int id, Layer layer, int row, int col)
@@ -372,9 +377,11 @@ namespace BioBot
             OnBurst?.Invoke(layer, px, new Color(0.55f, 0.95f, 0.72f, 1f), 11);
             OnRing?.Invoke(layer, px, new Color(0.6f, 1f, 0.85f, 0.9f), 34f);
             OnFloatText?.Invoke(layer, px - new Vector2(0, 14), spec.Name, new Color(0.7f, 1f, 0.85f, 1f));
+            if (spec.Ability == Ability.Income) PlantedIncomeCount++;
+            else PlantedFighterCount++;
             if (spec.Reach != Reach.Local) OnAchievement?.Invoke("cross_layer");
             AddEcoProgress(4f, 0);
-            Say("Đã trồng " + spec.Name + "!", 2f);
+            Say("Đã triệu hồi " + spec.Name + "!", 2f);
             return true;
         }
 
@@ -504,6 +511,7 @@ namespace BioBot
                     return true;
             }
             Trash[side, row, col] = null;
+            TrashUsedCount++;
             AddEcoProgress(10f, 1);
             OnSfx?.Invoke(SfxId.PushBottle);
             OnBurst?.Invoke(layer, px, new Color(0.65f, 0.95f, 1f, 1f), 10);
@@ -520,6 +528,7 @@ namespace BioBot
             if (waste == null || CampaignCatalog.Trash[waste.Spec].Effect != TrashEffect.Float) return false;
 
             Trash[side, row, col] = null;
+            BottlesPushedCount++;
             float speed = (turbo || dashActive > 0f) ? 8.2f : 5.6f;
             SlidingBottles.Add(new SlidingBottle
             {
@@ -602,6 +611,7 @@ namespace BioBot
         {
             orb.FlyingToBank = true;
             orb.Life = 2f;
+            OrbsCollectedCount++;
             OnSfx?.Invoke(SfxId.CollectOrb);
             OnBurst?.Invoke(orb.Layer, orb.Pos, new Color(1f, 0.94f, 0.42f, 1f), 6);
             OnFloatText?.Invoke(orb.Layer, orb.Pos, $"+{Mathf.RoundToInt(orb.Value)}", new Color(1f, 0.94f, 0.45f, 1f));

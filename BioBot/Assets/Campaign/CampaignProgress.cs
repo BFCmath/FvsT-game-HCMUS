@@ -13,7 +13,7 @@ namespace BioBot
         public int EndlessBestWave = 0;
         public int EndlessBestScore = 0;
         public bool Muted = false;
-        public int[] Stars = new int[8];
+        public int[] Stars = new int[10];
         public int[] Upgrades = new int[6];
         public bool[] Achievements = new bool[10];
 

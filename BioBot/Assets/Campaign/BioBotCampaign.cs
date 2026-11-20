@@ -40,6 +40,8 @@ namespace BioBot
         private bool autoPilot;
         private bool fastForward;
         private bool glassWaterPeek;
+        private int hoveredCardId = -1;
+        private Vector2 hoveredCardPos;
         private Overlay overlay = Overlay.None;
         private int guideTab;
         private float guideScroll;
@@ -385,6 +387,8 @@ namespace BioBot
                 DrawRightSidebar(layer, board.RobotCell);
                 DrawBottomDock(layer);
                 DrawVfx(layer);
+                DrawInteractiveTutorial(layer);
+                DrawHoverTooltips(layer);
 
                 if (board.TransitionOpacity > 0f) DrawDiveTransition();
                 if (vfx.WaveBannerTime > 0f) DrawWaveBanner();
@@ -807,6 +811,8 @@ namespace BioBot
             if (totalPages > 1 && Click(new Rect(96, 14, 22, 48), "◄")) ChangePage(-1);
 
             int unlockedCount = UnlockedAllyCount();
+            hoveredCardId = -1;
+            Vector2 mPos = Event.current != null ? Event.current.mousePosition : new Vector2(-999, -999);
             for (int slot = 0; slot < PageSize; slot++)
             {
                 int id = page * PageSize + slot;
@@ -839,6 +845,12 @@ namespace BioBot
                     Fill(new Rect(card.x, card.y, card.width, card.height * frac), new Color(0f, 0f, 0f, 0.62f));
                 }
 
+                if (overlay == Overlay.None && card.Contains(mPos))
+                {
+                    hoveredCardId = id;
+                    hoveredCardPos = new Vector2(card.x, card.yMax + 4);
+                }
+
                 if (Click(card, "", GUIStyle.none)) SelectSlot(slot);
             }
 
@@ -864,9 +876,16 @@ namespace BioBot
             Fill(panel, Ink);
             Border(panel, match.IsEcoSurge ? Gold : (layer == Layer.Deep ? Cyan : Gold));
 
+            // Count enemies on the OTHER layer for pulsing alert!
+            int otherEnemies = 0;
+            foreach (var e in match.Enemies) if (e.Layer == other) otherEnemies++;
+
             Label(596, 83, 154, 16, $"ĐANG Ở: {LayerName(layer)}", small, layer == Layer.Deep ? Cyan : Gold);
-            if (Click(new Rect(596, 100, 102, 24), layer == Layer.Deep ? "▲ E: Nổi" : "▼ Q: Lặn"))
-                board.ToggleLayer();
+            Rect diveBtn = new Rect(596, 100, 102, 24);
+            string diveLabel = layer == Layer.Deep ? "▲ E: Nổi lên" : "▼ Q: Lặn xuống";
+            if (otherEnemies > 0) diveLabel = $"! {diveLabel} ({otherEnemies})";
+            if (Click(diveBtn, diveLabel)) board.ToggleLayer();
+            if (otherEnemies > 0 && Mathf.Sin(Time.unscaledTime * 10f) > 0f) Border(diveBtn, Danger);
             if (Click(new Rect(702, 100, 48, 24), glassWaterPeek ? "Soi✓" : "C:Soi"))
             { glassWaterPeek = !glassWaterPeek; audioSys.Play(SfxId.Click); }
 
@@ -978,6 +997,117 @@ namespace BioBot
             Label(16, 405, 736, 18, tip, small, match.Feedback > 0f ? Teal : Muted);
         }
 
+        // ==================== INTERACTIVE GUIDED TUTORIAL & HOVER TOOLTIPS ====================
+
+        private void DrawInteractiveTutorial(Layer layer)
+        {
+            if (overlay != Overlay.None || match.Ended || match.Endless) return;
+            float pulse = 0.55f + 0.45f * Mathf.Sin(Time.unscaledTime * 8f);
+            Color hi = new Color(1f, 0.88f, 0.32f, pulse);
+            string guide = null;
+
+            if (selectedLevel == 1)
+            {
+                if (match.PlantedIncomeCount == 0)
+                {
+                    guide = "HƯỚNG DẪN (1/4): Click thẻ [Rái Cá] (số 3) rồi click ô cột trái để tạo Năng Lượng!";
+                    if (page == 0) Border(new Rect(122 + 2 * 82, 9, 78, 58), hi);
+                    Border(new Rect(30, 84 + 2 * 54, 58, 52), hi);
+                }
+                else if (match.PlantedFighterCount == 0)
+                {
+                    guide = "HƯỚNG DẪN (2/4): Click thẻ [Vịt Bắn Bọt] (số 1) rồi click ô trống hàng giữa để phòng thủ!";
+                    if (page == 0) Border(new Rect(122, 9, 78, 58), hi);
+                    Border(new Rect(30 + 60, 84 + 2 * 54, 58, 52), hi);
+                }
+                else if (match.OrbsCollectedCount == 0 && match.Orbs.Count > 0)
+                {
+                    guide = "HƯỚNG DẪN (3/4): Click vào Hạt Vàng đang rơi (hoặc bơi Bio-Bot lại gần) để thu Năng Lượng!";
+                    foreach (var o in match.Orbs)
+                        if (o.Layer == layer && !o.FlyingToBank) { DrawCircle(o.Pos, 30f, new Color(1f, 0.9f, 0.3f, pulse * 0.45f)); break; }
+                }
+                else if (match.BottlesPushedCount == 0)
+                {
+                    guide = "HƯỚNG DẪN (4/4): Dùng WASD bơi đẩy Chai Phao sang trái nhận +50 NL, hoặc đẩy phải húc quái!";
+                    for (int r = 0; r < CampaignMatch.Rows; r++)
+                        for (int c = 0; c < CampaignMatch.Columns; c++)
+                            if (match.Trash[0, r, c] != null && CampaignCatalog.Trash[match.Trash[0, r, c].Spec].Effect == TrashEffect.Float)
+                            { Border(new Rect(30 + c * 60, 84 + r * 54, 58, 52), hi); r = 99; break; }
+                }
+            }
+            else if (selectedLevel == 2)
+            {
+                if (match.FishRescued == 0)
+                {
+                    if (layer == Layer.Surface)
+                    {
+                        guide = "HƯỚNG DẪN MÀN 2 (1/2): Bấm nút [Q: Lặn xuống] bên phải để xuống Đáy Biển cứu cá!";
+                        Border(new Rect(594, 98, 106, 28), hi);
+                    }
+                    else
+                    {
+                        guide = "HƯỚNG DẪN MÀN 2 (2/2): Click (hoặc bấm F) vào ô Dây Cước để CỨU Cá Xạ Thủ miễn phí!";
+                        for (int r = 0; r < CampaignMatch.Rows; r++)
+                            for (int c = 0; c < CampaignMatch.Columns; c++)
+                                if (match.Trash[1, r, c] != null && CampaignCatalog.Trash[match.Trash[1, r, c].Spec].Effect == TrashEffect.Filament)
+                                { Border(new Rect(30 + c * 60, 84 + r * 54, 58, 52), Cyan); r = 99; break; }
+                    }
+                }
+            }
+            else if (selectedLevel == 3 && match.Time < 14f)
+            {
+                guide = "MẸO MÀN 3: Thả [Tôm Súng] dưới Đáy hoặc bấm R (Bio-Pulse) để đập vỡ giáp sắt Lon Kén!";
+            }
+            else if (selectedLevel == 4 && match.Time < 14f)
+            {
+                guide = "MẸO MÀN 4: Thả [Cá Ống Phun] dưới Đáy để bắn lên Mặt Nước & tăng +55% tốc độ cho ô trên!";
+            }
+
+            if (guide != null)
+            {
+                Rect box = new Rect(32, 74, 536, 22);
+                Fill(box, new Color(0.06f, 0.14f, 0.22f, 0.92f));
+                Border(box, Gold);
+                Label(box.x + 8, box.y + 3, box.width - 16, 16, "💡 " + guide, small, Gold);
+            }
+        }
+
+        private void DrawHoverTooltips(Layer layer)
+        {
+            if (overlay != Overlay.None || match.Ended) return;
+            // 1. Seed Card Hover Tooltip
+            if (hoveredCardId >= 0 && hoveredCardId < CampaignCatalog.Allies.Length)
+            {
+                var a = CampaignCatalog.Allies[hoveredCardId];
+                float tx = Mathf.Clamp(hoveredCardPos.x, 12f, 520f);
+                Rect tip = new Rect(tx, hoveredCardPos.y, 240, 56);
+                Fill(tip, new Color(0.06f, 0.13f, 0.2f, 0.96f));
+                Border(tip, Teal);
+                string habFull = a.Habitat == Habitat.Both ? "Sống ở Cả 2 Tầng" : a.Habitat == Habitat.Deep ? "Chỉ đặt ở Đáy Biển" : "Chỉ đặt ở Mặt Nước";
+                Label(tip.x + 8, tip.y + 5, 224, 16, $"{a.Name} ({a.Role}) · {a.Cost} NL", small, Gold);
+                Label(tip.x + 8, tip.y + 19, 224, 14, habFull, small, a.Habitat == Habitat.Deep ? Cyan : Teal);
+                Label(tip.x + 8, tip.y + 33, 224, 22, a.Hint, small, Color.white);
+                return;
+            }
+
+            // 2. Trash Tile Hover Quick-Action Badge
+            Vector2 mPos = Event.current != null ? Event.current.mousePosition : new Vector2(-999, -999);
+            if (TryPixelToCell(mPos, out int hc, out int hr))
+            {
+                var w = match.Trash[(int)layer, hr, hc];
+                if (w != null)
+                {
+                    var spec = CampaignCatalog.Trash[w.Spec];
+                    Vector2 p = CampaignMatch.CellToPixel(hc, hr);
+                    Rect box = new Rect(Mathf.Clamp(p.x - 105, 16, 360), Mathf.Max(76, p.y - 46), 210, 32);
+                    Fill(box, new Color(0.06f, 0.13f, 0.2f, 0.95f));
+                    Border(box, Gold);
+                    Label(box.x + 6, box.y + 3, 198, 14, spec.Name, smallCenter, Gold);
+                    Label(box.x + 6, box.y + 16, 198, 14, spec.QuickAction, smallCenter, Teal);
+                }
+            }
+        }
+
         // ==================== VFX, BANNERS & TOASTS ====================
 
         private void DrawVfx(Layer layer)
@@ -1069,13 +1199,13 @@ namespace BioBot
                 progress.Save();
             }
 
-            Label(28, 86, 360, 20, "CHIẾN DỊCH 8 MÀN CHƠI", text, Gold);
+            Label(28, 84, 360, 18, "CHIẾN DỊCH 10 MÀN · 3 CHƯƠNG ĐẠI DƯƠNG", text, Gold);
             for (int i = 0; i < CampaignCatalog.Levels.Length; i++)
             {
                 int lv = i + 1;
                 int gx = i % 2;
                 int gy = i / 2;
-                Rect card = new Rect(28 + gx * 194, 110 + gy * 62, 186, 54);
+                Rect card = new Rect(28 + gx * 194, 106 + gy * 51, 186, 45);
                 bool unlocked = lv <= progress.UnlockedLevel;
                 bool chosen = selectedLevel == lv;
                 Fill(card, chosen ? CardSel : (unlocked ? Panel : new Color(0.08f, 0.13f, 0.18f, 0.85f)));
@@ -1083,9 +1213,9 @@ namespace BioBot
 
                 int stars = progress.Stars[i];
                 string starStr = unlocked ? new string('★', stars) + new string('☆', 3 - stars) : "🔒 KHÓA";
-                Label(card.x + 8, card.y + 6, 170, 18, $"{lv:00}. {CampaignCatalog.Levels[i].Name}", small, unlocked ? Color.white : Muted);
-                Label(card.x + 8, card.y + 23, 170, 14, CampaignCatalog.Levels[i].Subtitle, small, Muted);
-                Label(card.x + 8, card.y + 37, 170, 14, starStr, small, stars > 0 ? Gold : Muted);
+                Label(card.x + 8, card.y + 4, 170, 16, $"{lv:00}. {CampaignCatalog.Levels[i].Name}", small, unlocked ? Color.white : Muted);
+                Label(card.x + 8, card.y + 18, 170, 13, CampaignCatalog.Levels[i].Subtitle, small, Muted);
+                Label(card.x + 8, card.y + 30, 170, 13, starStr, small, stars > 0 ? Gold : Muted);
 
                 GUI.enabled = unlocked;
                 if (Click(card, "", GUIStyle.none)) { selectedLevel = lv; audioSys.Play(SfxId.Click); }
@@ -1261,10 +1391,31 @@ namespace BioBot
             Label(48, 36, 340, 24, "📖 SỔ SINH THÁI (ALMANAC)", heading, Teal);
             if (Click(new Rect(632, 34, 88, 28), "Đóng")) overlay = Overlay.None;
 
-            string[] tabs = { "20 Cá & Cây", "14 Quái Rác", "10 Loại Rác" };
+            string[] tabs = { "20 Sinh Vật Biển", "14 Quái Rác", "10 Loại Rác", "🎮 Cách Chơi" };
             for (int i = 0; i < tabs.Length; i++)
-                if (Click(new Rect(48 + i * 142, 70, 132, 26), tabs[i]))
+                if (Click(new Rect(48 + i * 142, 70, 134, 26), tabs[i]))
                 { guideTab = i; guideScroll = 0f; audioSys.Play(SfxId.Click); }
+
+            if (guideTab == 3)
+            {
+                Fill(new Rect(48, 106, 672, 286), Ink);
+                string howTo =
+                    "1. TRIỆU HỒI SINH VẬT BIỂN:\n" +
+                    "   • Click thẻ trên thanh (hoặc bấm 1–6) rồi click ô trống để thả.\n" +
+                    "   • Để ý nhãn tầng: [Mặt] = Mặt Nước, [Đáy] = Đáy Biển, [2 Tầng] = cả hai.\n\n" +
+                    "2. ĐIỀU KHIỂN BIO-BOT & 2 TẦNG (5×9×2):\n" +
+                    "   • WASD / Mũi tên: Bơi tự do, tự hút Hạt Vàng & đẩy Chai Phao.\n" +
+                    "   • Q / E / Tab (hoặc click Bản đồ nhỏ): Lặn xuống Đáy / Nổi lên Mặt.\n" +
+                    "   • C: Bật/tắt Soi Xuyên Tầng (nhìn thấy sinh vật ở tầng kia).\n\n" +
+                    "3. TƯƠNG TÁC RÁC & KỸ NĂNG ĐẶC BIỆT:\n" +
+                    "   • Click trái (hoặc F): Thu rác lấy Năng Lượng / Cắt Dây Cước CỨU CÁ!\n" +
+                    "   • Click phải (hoặc G): Kích hoạt công cụ rác (Gương, Van Khí, Pin EMP, Khiên).\n" +
+                    "   • Shift: HYDRO-DASH lao tới húc bowling Chai Phao xuyên 2 quái!\n" +
+                    "   • R: BIO-PULSE (15 NL) phá giáp, dọn dầu & đánh chìm quái xuống Đáy!\n" +
+                    "   • Giữ ĐỘ TRONG NƯỚC đạt 100% để kích hoạt DÒNG CHẢY XANH (x2 tốc độ)!";
+                Label(64, 118, 640, 265, howTo, wrap, Color.white);
+                return;
+            }
 
             int count = guideTab == 0 ? CampaignCatalog.Allies.Length
                 : guideTab == 1 ? CampaignCatalog.Enemies.Length : CampaignCatalog.Trash.Length;
