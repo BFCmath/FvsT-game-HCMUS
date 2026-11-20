@@ -39,10 +39,13 @@ namespace BioBot
         private bool shovelMode;
         private bool autoPilot;
         private bool fastForward;
+        private bool glassWaterPeek;
         private Overlay overlay = Overlay.None;
         private int guideTab;
         private float guideScroll;
         private float lastMove;
+        private float wakeTimer;
+        private int lastFacingX = 1;
         private Vector2Int previousCell;
         private Layer previousLayer;
         private bool wasUnderwater;
@@ -50,7 +53,7 @@ namespace BioBot
         private bool recorded;
         private float baseOrthoSize = 4.5f;
 
-        private GUIStyle small, smallCenter, text, heading, title, button, wrap, badge;
+        private GUIStyle small, smallCenter, text, heading, title, button, wrap;
 
         public CampaignMatch CurrentMatch => match;
 
@@ -116,6 +119,7 @@ namespace BioBot
             shovelMode = false;
             autoPilot = false;
             fastForward = false;
+            glassWaterPeek = false;
             recorded = false;
             wasRespawning = false;
             wasUnderwater = false;
@@ -152,15 +156,17 @@ namespace BioBot
             float rawDelta = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
             vfx.Tick(rawDelta);
 
-            // Subtle camera zoom juice during dive/surface transition
             if (board.BoardCamera != null)
             {
                 float zoom = 0f;
                 if (board.IsTransitioning)
                 {
-                    float p = board.TransitionProgress;
-                    float arc = Mathf.Sin(p * Mathf.PI);
-                    zoom = board.TargetUnderwater ? -0.35f * arc : 0.35f * arc;
+                    float arc = Mathf.Sin(board.TransitionProgress * Mathf.PI);
+                    zoom = board.TargetUnderwater ? -0.42f * arc : 0.42f * arc;
+                }
+                else if (match != null && match.IsDashing)
+                {
+                    zoom = -0.14f;
                 }
                 board.BoardCamera.orthographicSize = Mathf.Lerp(board.BoardCamera.orthographicSize, baseOrthoSize + zoom, rawDelta * 18f);
             }
@@ -179,8 +185,7 @@ namespace BioBot
 
             if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
             {
-                if (overlay == Overlay.None) overlay = Overlay.Pause;
-                else overlay = Overlay.None;
+                overlay = overlay == Overlay.None ? Overlay.Pause : Overlay.None;
                 audioSys.Play(SfxId.Click);
                 return;
             }
@@ -203,13 +208,13 @@ namespace BioBot
                 return;
             }
 
-            // Detect dive/surface transition audio + bubble burst
             if (board.IsUnderwater != wasUnderwater)
             {
                 wasUnderwater = board.IsUnderwater;
                 audioSys.Play(wasUnderwater ? SfxId.Dive : SfxId.Surface);
                 Vector2 rPx = CampaignMatch.CellToPixel(board.RobotColumn, board.RobotCell.y);
-                vfx.SpawnBurst(wasUnderwater ? Layer.Deep : Layer.Surface, rPx, Cyan, 12, 85f, 4.5f);
+                vfx.SpawnBurst(wasUnderwater ? Layer.Deep : Layer.Surface, rPx, Cyan, 14, 95f, 4.8f);
+                vfx.SpawnRing(wasUnderwater ? Layer.Deep : Layer.Surface, rPx, Color.white, 56f);
             }
 
             float simDelta = Mathf.Min(Time.deltaTime, 0.05f) * (fastForward ? 1.85f : 1f);
@@ -235,13 +240,24 @@ namespace BioBot
 
             if (respawning || board.IsTransitioning) return;
 
+            // Animated water-ripple wake behind Bio-Bot!
+            wakeTimer -= simDelta;
+            if (wakeTimer <= 0f)
+            {
+                wakeTimer = match.IsDashing ? 0.05f : 0.22f;
+                Vector2 rPx = CampaignMatch.CellToPixel(board.RobotColumn, cell.y);
+                vfx.SpawnRing(layer, rPx + new Vector2(0, 10),
+                    match.IsDashing ? new Color(0.55f, 1f, 1f, 0.8f) : new Color(0.75f, 0.96f, 1f, 0.35f),
+                    match.IsDashing ? 32f : 22f);
+            }
+
             if (autoPilot) match.StepAutoPilot(board, simDelta);
 
-            // Physical push of floating bottle when Bio-Bot crosses into its cell
-            if (previousLayer == layer && previousCell.y == cell.y && previousCell.x != cell.x && match.Time - lastMove > 0.16f)
+            if (previousLayer == layer && previousCell.y == cell.y && previousCell.x != cell.x && match.Time - lastMove > 0.14f)
             {
                 int dir = cell.x - previousCell.x;
-                if (Mathf.Abs(dir) == 1 && match.PushFloat(layer, cell.y, cell.x, dir))
+                lastFacingX = dir > 0 ? 1 : -1;
+                if (Mathf.Abs(dir) == 1 && match.PushFloat(layer, cell.y, cell.x, dir, match.IsDashing))
                     lastMove = match.Time;
             }
             previousCell = cell;
@@ -253,6 +269,9 @@ namespace BioBot
         private void HandleMatchHotkeys(Keyboard kb, Layer layer, Vector2Int cell)
         {
             if (kb == null) return;
+            if (kb.aKey.isPressed || kb.leftArrowKey.isPressed) lastFacingX = -1;
+            else if (kb.dKey.isPressed || kb.rightArrowKey.isPressed) lastFacingX = 1;
+
             if (kb.zKey.wasPressedThisFrame) ChangePage(-1);
             if (kb.xKey.wasPressedThisFrame) ChangePage(1);
             if (kb.digit1Key.wasPressedThisFrame) SelectSlot(0);
@@ -269,6 +288,9 @@ namespace BioBot
             if (kb.fKey.wasPressedThisFrame) match.Collect(layer, cell.y, cell.x);
             if (kb.gKey.wasPressedThisFrame) match.UseTrash(layer, cell.y, cell.x);
             if (kb.rKey.wasPressedThisFrame) match.RobotPulse(layer, cell.y, board.RobotColumn);
+            if (kb.leftShiftKey.wasPressedThisFrame || kb.rightShiftKey.wasPressedThisFrame)
+                match.TriggerHydroDash(layer, cell.y, board.RobotColumn, lastFacingX);
+            if (kb.cKey.wasPressedThisFrame) { glassWaterPeek = !glassWaterPeek; audioSys.Play(SfxId.Click); }
             if (kb.pKey.wasPressedThisFrame) { autoPilot = !autoPilot; audioSys.Play(SfxId.Click); }
             if (kb.vKey.wasPressedThisFrame) { shovelMode = !shovelMode; audioSys.Play(SfxId.Click); }
         }
@@ -299,6 +321,7 @@ namespace BioBot
             overlay = Overlay.None;
             autoPilot = false;
             fastForward = false;
+            glassWaterPeek = false;
             board.ResetToSurface();
             robot.TerrainSpeed = 0f;
             audioSys.Play(SfxId.Click);
@@ -356,6 +379,7 @@ namespace BioBot
             {
                 Layer layer = board.IsUnderwater ? Layer.Deep : Layer.Surface;
                 HandleBoardMouse(layer);
+                DrawLivingWaterAmbience(layer);
                 DrawMatchWorld(layer);
                 DrawTopSeedBank(layer);
                 DrawRightSidebar(layer, board.RobotCell);
@@ -382,17 +406,15 @@ namespace BioBot
             if (e == null || e.type != EventType.MouseDown) return;
             Vector2 pos = e.mousePosition;
 
-            // Check Bio-Orb click first (PvZ Sun click!)
             if (e.button == 0 && match.CollectOrbAt(layer, pos))
             {
                 e.Use();
                 return;
             }
 
-            // Check grid cell click
             if (TryPixelToCell(pos, out int col, out int row))
             {
-                if (e.button == 1) // Right-click: Use trash gadget OR cancel shovel
+                if (e.button == 1)
                 {
                     if (shovelMode) shovelMode = false;
                     else if (match.Trash[(int)layer, row, col] != null) match.UseTrash(layer, row, col);
@@ -425,26 +447,91 @@ namespace BioBot
             return col >= 0 && col < CampaignMatch.Columns && row >= 0 && row < CampaignMatch.Rows;
         }
 
-        // ==================== WORLD RENDERING ====================
+        // ==================== LIVING ANIMATED WATER ENVIRONMENT ====================
+
+        private void DrawLivingWaterAmbience(Layer layer)
+        {
+            float t = Time.unscaledTime;
+            // Subtle Eco-Surge shimmering aura across the entire estuary!
+            if (match.IsEcoSurge)
+            {
+                float glow = 0.08f + 0.05f * Mathf.Sin(t * 7f);
+                Fill(new Rect(30, 84, 540, 270), new Color(0.45f, 1f, 0.88f, glow));
+            }
+            else if (match.WaterClarity < 25f)
+            {
+                // Murky pollution tint when clarity is low
+                Fill(new Rect(30, 84, 540, 270), new Color(0.22f, 0.18f, 0.12f, 0.14f));
+            }
+
+            if (layer == Layer.Surface)
+            {
+                // Animated sunlit caustic shimmer bars drifting across water
+                for (int i = 0; i < 16; i++)
+                {
+                    float sx = 36f + ((i * 73f + t * (16f + (i % 3) * 6f)) % 526f);
+                    float sy = 92f + ((i * 41f) % 252f) + Mathf.Sin(t * 2.5f + i) * 3f;
+                    float sw = 12f + (i % 4) * 5f;
+                    Fill(new Rect(sx, sy, sw, 2f), new Color(0.85f, 1f, 0.96f, 0.24f));
+                }
+            }
+            else
+            {
+                // Animated rising underwater bioluminescent bubbles
+                for (int i = 0; i < 20; i++)
+                {
+                    float bx = 42f + ((i * 61f) % 518f) + Mathf.Sin(t * 2.2f + i) * 6f;
+                    float by = 350f - ((t * (22f + (i % 4) * 9f) + i * 37f) % 262f);
+                    float sz = 3f + (i % 3) * 1.8f;
+                    DrawCircle(new Vector2(bx, by), sz, new Color(0.65f, 0.95f, 1f, 0.28f));
+                }
+            }
+        }
+
+        // ==================== WORLD RENDERING WITH FULL ANIMATION ====================
 
         private void DrawMatchWorld(Layer layer)
         {
+            float t = Time.unscaledTime;
             int side = (int)layer;
             int otherSide = (int)CampaignCatalog.Opposite(layer);
             Vector2Int robotCell = board.RobotCell;
 
-            // 1. Cross-Layer X-Ray Sonar Ghosts (shows opposite-layer entities faintly!)
+            // 1. Cross-Layer Glass-Water X-Ray Peek + Updraft Columns!
             for (int r = 0; r < CampaignMatch.Rows; r++)
             {
                 for (int c = 0; c < CampaignMatch.Columns; c++)
                 {
                     Vector2 p = CampaignMatch.CellToPixel(c, r);
+
+                    // Animated Vertical Updraft Column (Deep Vent/Periscope boosting Surface!)
+                    if (match.HasUpdraftAt(r, c))
+                    {
+                        float upA = 0.22f + 0.14f * Mathf.Sin(t * 6f + c);
+                        DrawCircle(p, 38f, new Color(0.45f, 0.98f, 1f, upA * 0.55f));
+                        for (int b = 0; b < 3; b++)
+                        {
+                            float by = p.y + 16f - ((t * 36f + b * 12f) % 34f);
+                            DrawCircle(new Vector2(p.x + Mathf.Sin(t * 4f + b) * 8f, by), 4.5f, new Color(0.75f, 1f, 1f, 0.55f));
+                        }
+                    }
+
                     var oppAlly = match.Allies[otherSide, r, c];
                     var oppTrash = match.Trash[otherSide, r, c];
-                    if (oppAlly != null)
-                        DrawCircle(p, 15f, new Color(0.45f, 0.95f, 0.85f, 0.18f));
-                    if (oppTrash != null && oppTrash.Active)
-                        Border(new Rect(p.x - 23, p.y - 20, 46, 40), new Color(0.45f, 0.95f, 1f, 0.45f));
+                    if (glassWaterPeek)
+                    {
+                        if (oppAlly != null)
+                            DrawSprite(oppAlly.Spec, Around(p, 36), 4, c + r, new Color(0.55f, 0.95f, 1f, 0.42f));
+                        if (oppTrash != null)
+                            DrawSprite(34 + oppTrash.Spec, Around(p, 32), 4, c + r, new Color(1f, 0.85f, 0.45f, 0.4f));
+                    }
+                    else
+                    {
+                        if (oppAlly != null)
+                            DrawCircle(p, 16f, new Color(0.45f, 0.95f, 0.85f, 0.18f));
+                        if (oppTrash != null && oppTrash.Active)
+                            Border(new Rect(p.x - 23, p.y - 20, 46, 40), new Color(0.45f, 0.95f, 1f, 0.48f));
+                    }
                 }
             }
             foreach (var e in match.Enemies)
@@ -452,44 +539,47 @@ namespace BioBot
                 if (e.Layer != layer)
                 {
                     Vector2 p = CampaignMatch.CellToPixel(Mathf.Clamp(e.X, 0f, 8.6f), e.Row);
-                    float pulse = 0.22f + 0.14f * Mathf.Sin(Time.unscaledTime * 8f);
-                    DrawCircle(p, 11f, new Color(1f, 0.35f, 0.35f, pulse));
+                    if (glassWaterPeek)
+                        DrawSprite(20 + e.Spec, Around(p, 38), 6, e.Row, new Color(1f, 0.45f, 0.45f, 0.45f));
+                    else
+                        DrawCircle(p, 12f, new Color(1f, 0.35f, 0.35f, 0.24f + 0.14f * Mathf.Sin(t * 8f)));
                 }
             }
 
-            // 2. Hydro-Turbine Sluice Indicators on Left Dam (PvZ Lawnmowers!)
+            // 2. Animated Spinning Hydro-Turbines on Left Eco-Dam
             for (int r = 0; r < CampaignMatch.Rows; r++)
             {
                 if (match.TurbineReady[side, r])
                 {
-                    Rect tr = new Rect(6, 94 + r * 54, 18, 30);
-                    Fill(tr, new Color(0.2f, 0.85f, 0.85f, 0.85f));
+                    Rect tr = new Rect(5, 93 + r * 54, 20, 32);
+                    Fill(tr, new Color(0.18f, 0.78f, 0.84f, 0.9f));
                     Border(tr, Color.white);
-                    Label(8, 100 + r * 54, 16, 18, "»", text, Color.white);
+                    float spin = Mathf.Sin(t * 10f + r);
+                    Fill(new Rect(8, 107 + r * 54 + spin * 6f, 14, 4), Color.white);
                 }
             }
 
-            // 3. Hover & Robot Cell Highlights
+            // 3. Hover Ghost Preview & Bio-Bot Tile Frame
             if (overlay == Overlay.None && TryPixelToCell(Event.current.mousePosition, out int hCol, out int hRow))
             {
                 Rect hr = new Rect(30 + hCol * 60, 84 + hRow * 54, 58, 52);
                 if (shovelMode)
                 {
-                    Fill(hr, new Color(1f, 0.35f, 0.35f, 0.22f));
+                    Fill(hr, new Color(1f, 0.35f, 0.35f, 0.24f));
                     Border(hr, Danger);
                 }
                 else
                 {
                     bool valid = match.CanPlant(selection, layer, hRow, hCol, out _);
-                    Fill(hr, valid ? new Color(0.45f, 1f, 0.72f, 0.18f) : new Color(1f, 0.4f, 0.35f, 0.15f));
+                    Fill(hr, valid ? new Color(0.45f, 1f, 0.72f, 0.2f) : new Color(1f, 0.4f, 0.35f, 0.16f));
                     Border(hr, valid ? Green : Danger);
                     if (valid)
-                        DrawSprite(selection, Around(CampaignMatch.CellToPixel(hCol, hRow), 40), 4, 0, new Color(1, 1, 1, 0.48f));
+                        DrawSprite(selection, Around(CampaignMatch.CellToPixel(hCol, hRow), 42), 5, 0, new Color(1, 1, 1, 0.52f));
                 }
             }
-            Border(new Rect(30 + robotCell.x * 60, 84 + robotCell.y * 54, 58, 52), Gold);
+            Border(new Rect(30 + robotCell.x * 60, 84 + robotCell.y * 54, 58, 52), match.IsDashing ? Cyan : Gold);
 
-            // 4. Trash & Allies on Current Layer
+            // 4. Trash & Allies with Squash-and-Stretch, Breathing, Recoil & Hurt Wobble!
             for (int r = 0; r < CampaignMatch.Rows; r++)
             {
                 for (int c = 0; c < CampaignMatch.Columns; c++)
@@ -498,39 +588,86 @@ namespace BioBot
                     var waste = match.Trash[side, r, c];
                     if (waste != null)
                     {
+                        float bobY = Mathf.Sin(t * 3.6f + waste.BobPhase) * 2.5f;
                         if (waste.Active)
                         {
-                            float glow = 0.55f + 0.35f * Mathf.Sin(Time.unscaledTime * 6f);
-                            Border(new Rect(p.x - 22, p.y - 19, 44, 38), new Color(0.45f, 1f, 0.92f, glow));
+                            float glow = 0.55f + 0.35f * Mathf.Sin(t * 7f);
+                            Border(new Rect(p.x - 23, p.y - 20, 46, 40), new Color(0.45f, 1f, 0.92f, glow));
                         }
-                        DrawSprite(34 + waste.Spec, Around(p, 40), 4, c + r, Color.white);
+                        DrawSprite(34 + waste.Spec, Around(p + new Vector2(0, bobY), 40), 4, c + r, Color.white);
                         if (CampaignCatalog.Trash[waste.Spec].Effect == TrashEffect.Filament)
-                            Label(p.x - 16, p.y - 25, 34, 14, "CỨU!", smallCenter, Cyan);
+                            Label(p.x - 18, p.y - 26 + bobY, 36, 14, "CỨU!", smallCenter, Cyan);
                     }
 
                     var ally = match.Allies[side, r, c];
                     if (ally != null)
                     {
-                        float pop = ally.PlantPop > 0f ? 1f + Mathf.Sin(ally.PlantPop * 12f) * 0.22f : 1f;
-                        float sz = 44f * pop;
-                        Color tint = ally.Jammed > 0f ? new Color(0.75f, 0.65f, 1f, 1f) : Color.white;
-                        DrawSprite(ally.Spec, Around(p, sz), ally.Cooldown < 0.2f ? 10 : 5, c + r, tint);
+                        // Elastic plant pop + breathing squash-and-stretch + firing recoil!
+                        float breathe = Mathf.Sin(t * 4.2f + ally.Phase);
+                        float sx = 1f + breathe * 0.055f;
+                        float sy = 1f - breathe * 0.055f;
+                        float ox = 0f;
+
+                        if (ally.PlantPop > 0f)
+                        {
+                            float pt = 1f - ally.PlantPop / 0.34f;
+                            float elastic = 1f + Mathf.Sin(pt * Mathf.PI * 2f) * (1f - pt) * 0.38f;
+                            sx *= elastic;
+                            sy *= (2f - elastic);
+                        }
+                        if (ally.FireAnim > 0f)
+                        {
+                            float ft = ally.FireAnim / 0.24f;
+                            sx *= 1f + ft * 0.22f;
+                            sy *= 1f - ft * 0.14f;
+                            ox += ft * 5f;
+                            if (ft > 0.65f) DrawCircle(p + new Vector2(18, -2), 14f * ft, new Color(0.85f, 1f, 0.85f, 0.75f));
+                        }
+                        if (ally.HurtAnim > 0f)
+                        {
+                            ox -= Mathf.Sin(ally.HurtAnim * 38f) * 3.5f;
+                        }
+
+                        float w = 44f * sx;
+                        float h = 44f * sy;
+                        Color tint = ally.HurtAnim > 0f ? new Color(1f, 0.72f, 0.72f, 1f)
+                            : ally.Jammed > 0f ? new Color(0.75f, 0.65f, 1f, 1f)
+                            : match.IsEcoSurge ? new Color(0.9f, 1f, 0.92f, 1f) : Color.white;
+
+                        // Subtle water ripple ring beneath ally
+                        DrawCircle(p + new Vector2(0, 15), 26f + breathe * 2f, new Color(0.75f, 0.96f, 1f, 0.16f));
+                        DrawSprite(ally.Spec, new Rect(p.x - w * 0.5f + ox, p.y - h * 0.5f + (44f - h) * 0.35f, w, h),
+                            ally.FireAnim > 0f ? 12 : 5, c + r, tint);
+
+                        if (layer == Layer.Surface && match.HasUpdraftAt(r, c))
+                            Label(p.x - 16, p.y - 26, 32, 13, "▲+55%", smallCenter, Cyan);
                         if (ally.Health < ally.MaxHealth)
                             Bar(new Rect(p.x - 14, p.y + 19, 28, 4), ally.Health / (float)ally.MaxHealth, Green);
                     }
                 }
             }
 
-            // 5. Active Hydro-Turbine Waves
+            // 5. Smooth Sliding Bowling Bottles with Foam Wake Trails!
+            foreach (var sb in match.SlidingBottles)
+            {
+                if (sb.Layer != layer) continue;
+                Vector2 p = CampaignMatch.CellToPixel(sb.X, sb.Row);
+                float trailDir = sb.VelX > 0 ? -1f : 1f;
+                for (int k = 1; k <= 3; k++)
+                    DrawCircle(p + new Vector2(trailDir * k * 10f, 4f), 14f - k * 3f, new Color(0.75f, 0.98f, 1f, 0.45f - k * 0.1f));
+                DrawSprite(34, Around(p, 42), 12, 0, Color.white);
+            }
+
+            // 6. Active Hydro-Turbine Waves
             foreach (var tw in match.Turbines)
             {
                 if (tw.Layer != layer) continue;
                 Vector2 p = CampaignMatch.CellToPixel(tw.X, tw.Row);
-                Fill(new Rect(p.x - 16, p.y - 24, 32, 48), new Color(0.4f, 0.92f, 1f, 0.85f));
-                Fill(new Rect(p.x + 8, p.y - 24, 8, 48), Color.white);
+                Fill(new Rect(p.x - 22, p.y - 25, 38, 50), new Color(0.35f, 0.92f, 1f, 0.85f));
+                Fill(new Rect(p.x + 8, p.y - 25, 10, 50), Color.white);
             }
 
-            // 6. Beams
+            // 7. Beams
             foreach (var b in match.Beams)
             {
                 if (b.Layer != layer) continue;
@@ -538,15 +675,16 @@ namespace BioBot
                 Vector2 c = CampaignMatch.CellToPixel(b.To, b.Row);
                 Color col = b.Color;
                 col.a = Mathf.Clamp01(b.Left * 5f);
-                float h = b.Thick ? 8f : 4f;
+                float h = b.Thick ? 9f : 4f;
                 Fill(new Rect(Mathf.Min(a.x, c.x), a.y - h * 0.5f, Mathf.Max(8f, Mathf.Abs(a.x - c.x)), h), col);
             }
 
-            // 7. Flying Projectiles!
+            // 8. Styled Projectiles with Motion Trails!
             foreach (var proj in match.Projectiles)
             {
                 if (proj.Layer != layer) continue;
                 Vector2 p = CampaignMatch.CellToPixel(proj.X, proj.Row);
+                p.y += Mathf.Sin(proj.Age * 14f) * (proj.Kind == ProjectileKind.Bubble ? 3f : 1f);
                 Color pc = proj.Kind switch
                 {
                     ProjectileKind.Bubble => Cyan,
@@ -557,44 +695,87 @@ namespace BioBot
                     ProjectileKind.Geyser => new Color(1f, 0.62f, 0.3f, 1f),
                     _ => new Color(0.55f, 1f, 0.55f, 1f)
                 };
-                DrawCircle(p, proj.Kind == ProjectileKind.Geyser ? 14f : 10f, pc);
+                // Trail
+                DrawCircle(p - new Vector2(10, 0), 7f, new Color(pc.r, pc.g, pc.b, 0.32f));
+                DrawCircle(p - new Vector2(18, 0), 4.5f, new Color(pc.r, pc.g, pc.b, 0.16f));
+                if (proj.Kind == ProjectileKind.Spear)
+                    Fill(new Rect(p.x - 10, p.y - 2.5f, 20, 5), pc);
+                else if (proj.Kind == ProjectileKind.Push)
+                    Fill(new Rect(p.x - 4, p.y - 12, 8, 24), pc);
+                else
+                    DrawCircle(p, proj.Kind == ProjectileKind.Geyser ? 15f : 11f, pc);
                 DrawCircle(p - new Vector2(2, 2), 4f, Color.white);
             }
 
-            // 8. Enemies
+            // 9. Enemies with Waddle Hop, Bite Lunge & Hit Squash!
             foreach (var e in match.Enemies)
             {
                 if (e.Layer != layer) continue;
                 var eSpec = CampaignCatalog.Enemies[e.Spec];
                 Vector2 p = CampaignMatch.CellToPixel(Mathf.Clamp(e.X, -0.3f, 8.7f), e.Row);
-                float sz = eSpec.Trait == Trait.Boss ? 68f : (e.Small ? 32f : 46f);
+                float baseSz = eSpec.Trait == Trait.Boss ? 70f : (e.Small ? 32f : 46f);
+
+                float waddle = Mathf.Abs(Mathf.Sin(e.WalkPhase));
+                float sx = 1f + (0.5f - waddle) * 0.08f;
+                float sy = 1f + (waddle - 0.5f) * 0.08f;
+                float ox = 0f;
+                float oy = -waddle * 3.5f;
+
+                if (e.BiteAnim > 0f)
+                {
+                    float bt = Mathf.Sin((e.BiteAnim / 0.25f) * Mathf.PI);
+                    ox -= bt * 8f;
+                    sx *= 1f + bt * 0.16f;
+                }
+                if (e.HurtAnim > 0f)
+                {
+                    float ht = e.HurtAnim / 0.16f;
+                    ox += ht * 5f;
+                    sx *= 1f - ht * 0.18f;
+                    sy *= 1f + ht * 0.18f;
+                }
+
+                float w = baseSz * sx;
+                float h = baseSz * sy;
                 Color tint = e.Flash > 0f ? new Color(1f, 0.55f, 0.45f, 1f)
                     : e.Slow > 0f ? new Color(0.62f, 0.88f, 1f, 1f) : Color.white;
-                DrawSprite(20 + e.Spec, Around(p, sz), e.Slow > 0f ? 4 : 9, e.Row, tint);
-                float bw = eSpec.Trait == Trait.Boss ? 52f : 28f;
-                Bar(new Rect(p.x - bw * 0.5f, p.y - sz * 0.52f, bw, 4), e.Health / (float)e.MaxHealth, Danger);
+
+                DrawCircle(p + new Vector2(0, baseSz * 0.36f), baseSz * 0.55f, new Color(0.05f, 0.1f, 0.15f, 0.28f));
+                DrawSprite(20 + e.Spec, new Rect(p.x - w * 0.5f + ox, p.y - h * 0.5f + oy, w, h),
+                    e.Slow > 0f ? 4 : 9, e.Row, tint);
+
+                float bw = eSpec.Trait == Trait.Boss ? 54f : 28f;
+                Bar(new Rect(p.x - bw * 0.5f, p.y - baseSz * 0.54f, bw, 4), e.Health / (float)e.MaxHealth, Danger);
             }
 
-            // 9. Collectible Floating Bio-Orbs!
+            // 10. Arcing Collectible Bio-Orbs with Sunburst Pulse!
             foreach (var orb in match.Orbs)
             {
                 if (orb.Layer != layer) continue;
-                float bob = Mathf.Sin(orb.Bob) * 3f;
+                float bob = orb.FlyingToBank ? 0f : Mathf.Sin(orb.Bob) * 3f;
                 Vector2 p = orb.Pos + new Vector2(0, bob);
-                DrawCircle(p, 20f, new Color(1f, 0.88f, 0.35f, 0.32f));
+                float pulse = 20f + Mathf.Sin(t * 7f + orb.Bob) * 3f;
+                DrawCircle(p, pulse, new Color(1f, 0.88f, 0.35f, 0.35f));
                 DrawCircle(p, 13f, Gold);
                 DrawCircle(p - new Vector2(3, 3), 5f, Color.white);
             }
 
-            // 10. Boss HP Bar (if Boss is alive!)
+            // 11. Boss HP Bar & Live Combo Badge
             var boss = match.ActiveBoss;
             if (boss != null)
             {
-                Rect br = new Rect(140, 82, 330, 18);
+                Rect br = new Rect(136, 80, 336, 18);
                 Fill(br, Ink);
                 Border(br, Danger);
                 Bar(new Rect(br.x + 3, br.y + 3, br.width - 6, br.height - 6), boss.Health / (float)boss.MaxHealth, Danger);
                 Label(br.x, br.y + 1, br.width, 16, $"TÀU XẢ ĐỘC ({LayerName(boss.Layer)})  {boss.Health}/{boss.MaxHealth}", smallCenter, Color.white);
+            }
+            if (match.ComboCount >= 2)
+            {
+                Rect cr = new Rect(468, 86, 98, 22);
+                Fill(cr, new Color(0.12f, 0.24f, 0.32f, 0.9f));
+                Border(cr, Gold);
+                Label(cr.x, cr.y + 3, cr.width, 16, $"ECO COMBO x{match.ComboCount}!", smallCenter, Gold);
             }
 
             if (match.Respawn > 0f)
@@ -611,21 +792,20 @@ namespace BioBot
         private void DrawTopSeedBank(Layer layer)
         {
             Fill(new Rect(8, 4, 752, 68), Ink);
-            Border(new Rect(8, 4, 752, 68), new Color(0.28f, 0.58f, 0.65f, 1f));
+            Border(new Rect(8, 4, 752, 68), match.IsEcoSurge ? Gold : new Color(0.28f, 0.58f, 0.65f, 1f));
 
-            // Sun / Bio-Energy Counter (Classic PvZ Left Box!)
+            // Bouncing Sun / Bio-Energy Counter
+            float bScale = match.EnergyBounce > 0f ? 1f + Mathf.Sin(match.EnergyBounce * 14f) * 0.2f : 1f;
             Rect sunBox = new Rect(14, 9, 76, 58);
             Fill(sunBox, new Color32(36, 62, 54, 255));
             Border(sunBox, Gold);
-            DrawCircle(new Vector2(52, 27), 16f, Gold);
-            DrawCircle(new Vector2(49, 24), 6f, Color.white);
+            DrawCircle(new Vector2(52, 27), 16f * bScale, Gold);
+            DrawCircle(new Vector2(49, 24), 6f * bScale, Color.white);
             Label(14, 44, 76, 20, match.Energy.ToString(), smallCenter, Gold);
 
-            // Prev Page Button
             int totalPages = PageCount();
             if (totalPages > 1 && Click(new Rect(96, 14, 22, 48), "◄")) ChangePage(-1);
 
-            // 6 Seed Packets!
             int unlockedCount = UnlockedAllyCount();
             for (int slot = 0; slot < PageSize; slot++)
             {
@@ -653,7 +833,6 @@ namespace BioBot
                 Label(card.x + 2, card.y + 34, 74, 13, ally.Name, smallCenter, Color.white);
                 Label(card.x + 2, card.y + 45, 74, 13, $"{ally.Cost} NL", smallCenter, afford ? Gold : Danger);
 
-                // PvZ Cooldown Curtain!
                 if (cd > 0f)
                 {
                     float frac = Mathf.Clamp01(cd / Mathf.Max(0.1f, ally.Recharge));
@@ -665,7 +844,6 @@ namespace BioBot
 
             if (totalPages > 1 && Click(new Rect(616, 14, 22, 48), "►")) ChangePage(1);
 
-            // Right utility cluster: Shovel, Speed, Auto-Pilot, Pause
             Fill(new Rect(644, 9, 110, 58), Panel);
             if (Click(new Rect(648, 12, 48, 24), shovelMode ? "Hủy" : "Xẻng"))
             { shovelMode = !shovelMode; audioSys.Play(SfxId.Click); }
@@ -677,28 +855,29 @@ namespace BioBot
             { overlay = Overlay.Pause; audioSys.Play(SfxId.Click); }
         }
 
-        // ==================== RIGHT SIDEBAR (LIVE DUAL-LAYER MINIMAP) ====================
+        // ==================== RIGHT SIDEBAR (MINIMAP + ECO-CLARITY GAUGE) ====================
 
         private void DrawRightSidebar(Layer layer, Vector2Int cell)
         {
             Layer other = CampaignCatalog.Opposite(layer);
             Rect panel = new Rect(586, 78, 174, 280);
             Fill(panel, Ink);
-            Border(panel, layer == Layer.Deep ? Cyan : Gold);
+            Border(panel, match.IsEcoSurge ? Gold : (layer == Layer.Deep ? Cyan : Gold));
 
-            // Current Layer Banner + Instant Dive/Surface Button
-            Label(596, 84, 154, 18, $"ĐANG Ở: {LayerName(layer)}", small, layer == Layer.Deep ? Cyan : Gold);
-            if (Click(new Rect(596, 103, 154, 28), layer == Layer.Deep ? "▲ E/Tab: NỔI LÊN" : "▼ Q/Tab: LẶN XUỐNG"))
+            Label(596, 83, 154, 16, $"ĐANG Ở: {LayerName(layer)}", small, layer == Layer.Deep ? Cyan : Gold);
+            if (Click(new Rect(596, 100, 102, 24), layer == Layer.Deep ? "▲ E: Nổi" : "▼ Q: Lặn"))
                 board.ToggleLayer();
+            if (Click(new Rect(702, 100, 48, 24), glassWaterPeek ? "Soi✓" : "C:Soi"))
+            { glassWaterPeek = !glassWaterPeek; audioSys.Play(SfxId.Click); }
 
-            // Live Interactive Minimap of the OTHER Layer!
-            Label(596, 136, 154, 16, $"TẦNG KIA: {LayerName(other)} (Click đổi)", small, Muted);
-            Rect mapHit = new Rect(596, 154, 154, 78);
+            // Interactive Dual-Layer Minimap
+            Label(596, 127, 154, 14, $"TẦNG KIA: {LayerName(other)} (Click đổi)", small, Muted);
+            Rect mapHit = new Rect(596, 142, 154, 74);
             for (int r = 0; r < CampaignMatch.Rows; r++)
             {
                 for (int c = 0; c < CampaignMatch.Columns; c++)
                 {
-                    Rect t = new Rect(598 + c * 16.5f, 156 + r * 14.5f, 14.5f, 12.5f);
+                    Rect t = new Rect(598 + c * 16.5f, 144 + r * 14f, 14.5f, 12f);
                     Color col = other == Layer.Deep ? new Color32(24, 68, 106, 255) : new Color32(36, 118, 118, 255);
                     if (match.Trash[(int)other, r, c] != null) col = Gold;
                     if (match.Allies[(int)other, r, c] != null) col = Teal;
@@ -711,65 +890,71 @@ namespace BioBot
                 if (e.Layer == other)
                 {
                     float ex = 599 + Mathf.Clamp(Mathf.RoundToInt(e.X), 0, 8) * 16.5f;
-                    Fill(new Rect(ex, 158 + e.Row * 14.5f, 10, 8), Danger);
+                    Fill(new Rect(ex, 146 + e.Row * 14f, 10, 8), Danger);
                 }
             }
             if (Click(mapHit, "", GUIStyle.none)) board.ToggleLayer();
 
-            // Status Bars: Eco-Dam Integrity & Bio-Bot HP
-            Label(596, 236, 154, 16, $"CỬA ĐÊ  {match.Integrity}/{CampaignMatch.MaxIntegrity}", small, Teal);
-            Bar(new Rect(596, 252, 154, 7), match.Integrity / (float)CampaignMatch.MaxIntegrity, Teal);
+            // Original Eco-Clarity / Eco-Surge Bar!
+            Label(596, 220, 154, 15, match.IsEcoSurge
+                ? $"✦ DÒNG CHẢY XANH ({Mathf.CeilToInt(match.EcoSurgeTime)}s)"
+                : $"ĐỘ TRONG NƯỚC  {Mathf.RoundToInt(match.WaterClarity)}%",
+                small, match.IsEcoSurge ? Gold : Cyan);
+            Bar(new Rect(596, 235, 154, 7), match.WaterClarity / 100f, match.IsEcoSurge ? Gold : Cyan);
 
-            Label(596, 264, 154, 16, $"BIO-BOT HP  {match.RobotHealth}/{match.MaxRobotHealth}", small, match.RobotHealth <= 1 ? Danger : Green);
-            Bar(new Rect(596, 280, 154, 7), match.RobotHealth / (float)match.MaxRobotHealth, match.RobotHealth <= 1 ? Danger : Green);
+            // Eco-Dam Integrity & Bio-Bot HP
+            Label(596, 246, 154, 15, $"CỬA ĐÊ  {match.Integrity}/{CampaignMatch.MaxIntegrity}", small, Teal);
+            Bar(new Rect(596, 261, 154, 6), match.Integrity / (float)CampaignMatch.MaxIntegrity, Teal);
 
-            // Next Attack Radar & Cell Info
+            Label(596, 271, 154, 15, $"BIO-BOT HP  {match.RobotHealth}/{match.MaxRobotHealth}", small, match.RobotHealth <= 1 ? Danger : Green);
+            Bar(new Rect(596, 286, 154, 6), match.RobotHealth / (float)match.MaxRobotHealth, match.RobotHealth <= 1 ? Danger : Green);
+
             var debris = match.Trash[(int)layer, cell.y, cell.x];
             if (debris != null)
             {
                 var spec = CampaignCatalog.Trash[debris.Spec];
-                Label(596, 293, 154, 16, $"RÁC: {spec.Name}", small, Gold);
-                Label(596, 309, 154, 42, spec.Hint, wrap, Muted);
+                Label(596, 296, 154, 15, $"RÁC: {spec.Name}", small, Gold);
+                Label(596, 311, 154, 42, spec.Hint, wrap, Muted);
             }
             else if (match.NextRow >= 0)
             {
                 string warn = $"Sắp vào ({Mathf.CeilToInt(match.NextAttack)}s): Hàng {match.NextRow + 1} · {LayerName(match.NextLayer)}";
-                Label(596, 295, 154, 34, warn, wrap, match.NextAttack < 4f ? Danger : Muted);
-                Label(596, 332, 154, 20, $"Điểm: {match.Score}  ·  Xu: +{match.CoinsEarned}", small, Gold);
+                Label(596, 298, 154, 34, warn, wrap, match.NextAttack < 4f ? Danger : Muted);
+                Label(596, 334, 154, 18, $"Điểm: {match.Score}  ·  Xu: +{match.CoinsEarned}", small, Gold);
             }
             else
             {
-                Label(596, 298, 154, 20, "ĐỢT CUỐI ĐANG CHẠY!", small, Gold);
-                Label(596, 322, 154, 20, $"Điểm: {match.Score}  ·  Xu: +{match.CoinsEarned}", small, Gold);
+                Label(596, 300, 154, 18, "ĐỢT CUỐI ĐANG CHẠY!", small, Gold);
+                Label(596, 324, 154, 18, $"Điểm: {match.Score}  ·  Xu: +{match.CoinsEarned}", small, Gold);
             }
         }
 
-        // ==================== BOTTOM DOCK (WAVE PROGRESS + BIO-PULSE + TIPS) ====================
+        // ==================== BOTTOM DOCK (HYDRO-DASH + BIO-PULSE + WAVE FLAGS) ====================
 
         private void DrawBottomDock(Layer layer)
         {
             Fill(new Rect(8, 364, 752, 62), Ink);
             Border(new Rect(8, 364, 752, 62), new Color(0.24f, 0.5f, 0.58f, 1f));
 
-            // Bio-Pulse Action Button
-            bool pulseReady = match.PulseCooldownLeft <= 0f && match.Energy >= 15;
+            string dashTxt = match.DashCooldownLeft > 0f
+                ? $"Shift: Lướt ({match.DashCooldownLeft:0.0}s)"
+                : "Shift: HYDRO-DASH";
+            if (Click(new Rect(14, 371, 118, 28), dashTxt))
+                match.TriggerHydroDash(layer, board.RobotCell.y, board.RobotColumn, lastFacingX);
+
             string pulseTxt = match.PulseCooldownLeft > 0f
                 ? $"R: Xung ({Mathf.CeilToInt(match.PulseCooldownLeft)}s)"
                 : "R: BIO-PULSE (15)";
-            if (Click(new Rect(16, 372, 128, 28), pulseTxt))
+            if (Click(new Rect(136, 371, 116, 28), pulseTxt))
                 match.RobotPulse(layer, board.RobotCell.y, board.RobotColumn);
 
-            if (Click(new Rect(150, 372, 96, 28), "Sổ Sinh Thái"))
-            { overlay = Overlay.Guide; audioSys.Play(SfxId.Click); }
-
-            // PvZ Wave Progress Flag Bar!
-            Label(258, 370, 210, 16, match.Endless
+            // PvZ Wave Progress Flag Bar
+            Label(262, 369, 326, 16, match.Endless
                 ? $"VÔ TẬN · ĐỢT {match.Wave}"
                 : $"Màn {selectedLevel:00}: {match.Rules.Name}  ·  Đợt {match.Wave}/{match.TotalWaves}", small, Color.white);
-            Rect bar = new Rect(258, 388, 340, 10);
+            Rect bar = new Rect(262, 387, 336, 10);
             Bar(bar, match.WaveProgress, Green);
             Border(bar, Color.white);
-            // Wave flags
             int flags = Mathf.Max(1, match.TotalWaves);
             for (int f = 1; f <= flags; f++)
             {
@@ -778,20 +963,18 @@ namespace BioBot
                 Fill(new Rect(fx + 2, bar.y - 4, 6, 5), Danger);
             }
 
-            // Mute button
-            if (Click(new Rect(614, 372, 68, 28), audioSys.Muted ? "Âm: Tắt" : "Âm: Bật"))
+            if (Click(new Rect(610, 371, 68, 28), audioSys.Muted ? "Âm: Tắt" : "Âm: Bật"))
             {
                 audioSys.Muted = !audioSys.Muted;
                 progress.Muted = audioSys.Muted;
                 progress.Save();
             }
-            if (Click(new Rect(688, 372, 64, 28), "Trợ giúp"))
+            if (Click(new Rect(682, 371, 70, 28), "Sổ ST"))
             { overlay = Overlay.Guide; audioSys.Play(SfxId.Click); }
 
-            // Live Ticker Message / Selected Ally Hint
             string tip = match.Feedback > 0f
                 ? match.Message
-                : $"[{CampaignCatalog.Allies[selection].Name}] {CampaignCatalog.Allies[selection].Hint}  ·  Click ô để trồng, F thu rác/cứu cá, G/Chuột phải kích hoạt rác.";
+                : $"[{CampaignCatalog.Allies[selection].Name}] {CampaignCatalog.Allies[selection].Hint} · Shift: Lướt bowling rác · C: Soi xuyên 2 tầng.";
             Label(16, 405, 736, 18, tip, small, match.Feedback > 0f ? Teal : Muted);
         }
 
@@ -820,7 +1003,7 @@ namespace BioBot
                 if (ft.Layer != layer) continue;
                 Color c = ft.Color;
                 c.a = Mathf.Clamp01(ft.Life / ft.MaxLife);
-                Label(ft.Pos.x - 48, ft.Pos.y - 8, 96, 18, ft.Text, smallCenter, c);
+                Label(ft.Pos.x - 52, ft.Pos.y - 8, 104, 18, ft.Text, smallCenter, c);
             }
         }
 
@@ -829,8 +1012,7 @@ namespace BioBot
             float op = board.TransitionOpacity;
             Color tint = board.TargetUnderwater ? new Color(0.04f, 0.16f, 0.28f, op * 0.85f) : new Color(0.18f, 0.55f, 0.62f, op * 0.72f);
             Fill(new Rect(0, 0, 768, 432), tint);
-            // Animated bubble curtain!
-            for (int i = 0; i < 18; i++)
+            for (int i = 0; i < 20; i++)
             {
                 float bx = (i * 47 + 23) % 768;
                 float by = ((board.TargetUnderwater ? (1f - board.TransitionProgress) : board.TransitionProgress) * 480f + i * 53) % 432f;
@@ -841,10 +1023,10 @@ namespace BioBot
         private void DrawWaveBanner()
         {
             float alpha = Mathf.Clamp01(vfx.WaveBannerTime * 1.2f);
-            Rect r = new Rect(134, 176, 500, 56);
-            Fill(r, new Color(0.06f, 0.12f, 0.18f, 0.88f * alpha));
-            Border(r, new Color(1f, 0.45f, 0.35f, alpha));
-            Label(r.x, r.y + 14, r.width, 30, vfx.WaveBannerText, heading, new Color(1f, 0.82f, 0.38f, alpha));
+            Rect r = new Rect(114, 174, 540, 56);
+            Fill(r, new Color(0.06f, 0.12f, 0.18f, 0.9f * alpha));
+            Border(r, new Color(1f, 0.55f, 0.35f, alpha));
+            Label(r.x, r.y + 15, r.width, 30, vfx.WaveBannerText, heading, new Color(1f, 0.86f, 0.4f, alpha));
         }
 
         private void DrawAchievementToast()
@@ -864,11 +1046,18 @@ namespace BioBot
             else Fill(new Rect(0, 0, 768, 432), Ink);
             Fill(new Rect(0, 0, 768, 432), new Color(0.03f, 0.08f, 0.14f, 0.48f));
 
-            // Header Banner
-            Label(28, 18, 420, 42, "BIO-BOT: ĐÊ XANH CẢM TỬ", title, Color.white);
-            Label(30, 58, 460, 20, "Phòng thủ hai tầng Mặt Nước & Đáy Biển · Phong cách Plants vs. Zombies", small, Teal);
+            // Animated rising menu bubbles!
+            float t = Time.unscaledTime;
+            for (int i = 0; i < 14; i++)
+            {
+                float bx = 30f + (i * 57f) % 708f + Mathf.Sin(t * 1.8f + i) * 8f;
+                float by = 420f - ((t * (18f + (i % 3) * 8f) + i * 43f) % 240f);
+                DrawCircle(new Vector2(bx, by), 5f + (i % 3) * 2f, new Color(0.7f, 0.96f, 1f, 0.3f));
+            }
 
-            // Top-right player stats (Stars, Eco-Coins, Mute)
+            Label(28, 18, 440, 42, "BIO-BOT: ĐÊ XANH CẢM TỬ", title, Color.white);
+            Label(30, 58, 460, 20, "Phòng thủ liên tầng Mặt Nước & Đáy Biển · Dòng Chảy Xanh & Hydro-Dash", small, Teal);
+
             Fill(new Rect(506, 18, 236, 44), Ink);
             Border(new Rect(506, 18, 236, 44), Gold);
             Label(518, 24, 108, 16, $"★ {progress.TotalStars()}/{CampaignCatalog.Levels.Length * 3} Sao", small, Gold);
@@ -880,7 +1069,6 @@ namespace BioBot
                 progress.Save();
             }
 
-            // Left Column: 8 Campaign Levels Grid (2 columns × 4 rows)
             Label(28, 86, 360, 20, "CHIẾN DỊCH 8 MÀN CHƠI", text, Gold);
             for (int i = 0; i < CampaignCatalog.Levels.Length; i++)
             {
@@ -904,7 +1092,6 @@ namespace BioBot
                 GUI.enabled = true;
             }
 
-            // Right Column: Selected Level Preview + Newly Unlocked Allies
             var spec = CampaignCatalog.Levels[selectedLevel - 1];
             Rect info = new Rect(428, 110, 314, 240);
             Fill(info, Panel);
@@ -929,7 +1116,6 @@ namespace BioBot
             if (Click(new Rect(442, 304, 286, 36), $"▶  CHƠI MÀN {selectedLevel:00} (Enter)"))
                 OpenBriefing(selectedLevel, false);
 
-            // Bottom Mode & Feature Bar (Midterm High-Score Features!)
             if (Click(new Rect(28, 368, 186, 44), $"♾ SINH TỒN VÔ TẬN\nKỷ lục: Đợt {progress.EndlessBestWave}"))
                 OpenBriefing(progress.UnlockedLevel, true);
             if (Click(new Rect(224, 368, 166, 44), $"⚙ XƯỞNG BIO-BOT\n({progress.EcoCoins} Xu)"))
@@ -940,7 +1126,7 @@ namespace BioBot
             { overlay = Overlay.Guide; audioSys.Play(SfxId.Click); }
         }
 
-        // ==================== OVERLAYS (BRIEFING, RESULT, SHOP, ACHIEVEMENTS, ALMANAC, PAUSE) ====================
+        // ==================== OVERLAYS ====================
 
         private void DrawBriefing()
         {
@@ -979,7 +1165,6 @@ namespace BioBot
             Label(174, 144, 420, 20, $"Điểm: {match.Score}   ·   Xu nhận được: +{match.CoinsEarned}   ·   Tiêu diệt: {match.Kills}", text, Color.white);
             Label(174, 168, 420, 18, $"Cá đã cứu: {match.FishRescued}   ·   Chai vào bến: {match.BottlesDocked}", small, Muted);
 
-            // PvZ-style New Ally Unlock Showcase!
             bool next = !match.Endless && match.Won && selectedLevel < CampaignCatalog.Levels.Length;
             if (next)
             {
@@ -1025,9 +1210,7 @@ namespace BioBot
                 Label(card.x + 12, card.y + 30, 200, 42, up.Desc, wrap, Muted);
 
                 if (lv >= up.MaxLevel)
-                {
                     Label(card.x + 220, card.y + 30, 82, 24, "TỐI ĐA", smallCenter, Teal);
-                }
                 else
                 {
                     int cost = up.CostAt(lv);
@@ -1129,7 +1312,7 @@ namespace BioBot
             if (Click(new Rect(274, 258, 220, 34), "Về Bản Đồ Chiến Dịch")) ReturnToMenu();
         }
 
-        // ==================== HELPERS & DRAWING PRIMITIVES ====================
+        // ==================== HELPERS ====================
 
         private void EnsureStyles()
         {
@@ -1141,7 +1324,6 @@ namespace BioBot
             title = MakeStyle(28, true, TextAnchor.UpperLeft);
             wrap = MakeStyle(11, false, TextAnchor.UpperLeft);
             wrap.wordWrap = true;
-            badge = MakeStyle(10, true, TextAnchor.MiddleCenter);
             button = new GUIStyle(GUI.skin.button) { fontSize = 11, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
         }
 
@@ -1158,14 +1340,12 @@ namespace BioBot
         {
             var tex = new Texture2D(sz, sz, TextureFormat.RGBA32, false);
             float c = (sz - 1) * 0.5f;
-            float r = c;
             for (int y = 0; y < sz; y++)
             {
                 for (int x = 0; x < sz; x++)
                 {
                     float d = Vector2.Distance(new Vector2(x, y), new Vector2(c, c));
-                    float a = Mathf.Clamp01((r - d) * 1.4f);
-                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+                    tex.SetPixel(x, y, new Color(1f, 1f, 1f, Mathf.Clamp01((c - d) * 1.4f)));
                 }
             }
             tex.Apply();

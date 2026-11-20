@@ -14,14 +14,15 @@ namespace BioBot
         {
             public readonly int Spec;
             public int Health, MaxHealth;
-            public float Cooldown, Jammed, Temporary, PlantPop;
-            public Ally(int spec, int health, float temporary = 0f)
+            public float Cooldown, Jammed, Temporary, PlantPop, FireAnim, HurtAnim, Phase;
+            public Ally(int spec, int health, float temporary = 0f, float phase = 0f)
             {
                 Spec = spec;
                 Health = MaxHealth = health;
                 Temporary = temporary;
-                PlantPop = 0.25f;
-                Cooldown = 0.6f;
+                PlantPop = 0.34f;
+                Cooldown = 0.55f;
+                Phase = phase;
             }
         }
 
@@ -29,8 +30,8 @@ namespace BioBot
         {
             public readonly int Spec;
             public bool Active;
-            public float Cooldown;
-            public Waste(int spec) => Spec = spec;
+            public float Cooldown, BobPhase;
+            public Waste(int spec, float phase = 0f) { Spec = spec; BobPhase = phase; }
         }
 
         public sealed class Enemy
@@ -38,10 +39,10 @@ namespace BioBot
             public readonly int Spec;
             public Layer Layer;
             public int Row, Health, MaxHealth;
-            public float X, Attack, Slow, Recovery, Flash, BossTimer;
+            public float X, Attack, Slow, Recovery, Flash, BossTimer, BiteAnim, HurtAnim, WalkPhase;
             public bool Shifted, Broken, Small;
 
-            public Enemy(int spec, Layer layer, int row, float x, int health, bool small = false)
+            public Enemy(int spec, Layer layer, int row, float x, int health, bool small = false, float walkPhase = 0f)
             {
                 Spec = spec;
                 Layer = layer;
@@ -50,6 +51,7 @@ namespace BioBot
                 Health = MaxHealth = health;
                 Small = small;
                 BossTimer = 7f;
+                WalkPhase = walkPhase;
             }
         }
 
@@ -57,9 +59,17 @@ namespace BioBot
         {
             public Layer Layer;
             public int Row, Damage, PierceLeft;
-            public float X, Speed;
+            public float X, Speed, Age;
             public ProjectileKind Kind;
             public bool Pulse, Slow, Push;
+            public readonly HashSet<Enemy> Hit = new HashSet<Enemy>();
+        }
+
+        public sealed class SlidingBottle
+        {
+            public Layer Layer;
+            public int Row, Hits;
+            public float X, VelX;
             public readonly HashSet<Enemy> Hit = new HashSet<Enemy>();
         }
 
@@ -67,7 +77,8 @@ namespace BioBot
         {
             public Layer Layer;
             public Vector2 Pos;
-            public float TargetY, Value, Life, Bob;
+            public float VelX, VelY, TargetY, Value, Life, Bob;
+            public bool FlyingToBank;
         }
 
         public sealed class TurbineWave
@@ -99,6 +110,7 @@ namespace BioBot
         public readonly float[] CardCooldowns = new float[CampaignCatalog.Allies.Length];
         public readonly List<Enemy> Enemies = new List<Enemy>();
         public readonly List<Projectile> Projectiles = new List<Projectile>();
+        public readonly List<SlidingBottle> SlidingBottles = new List<SlidingBottle>();
         public readonly List<BioOrb> Orbs = new List<BioOrb>();
         public readonly List<TurbineWave> Turbines = new List<TurbineWave>();
         public readonly List<BeamEffect> Beams = new List<BeamEffect>();
@@ -107,23 +119,37 @@ namespace BioBot
         private readonly CampaignProgress progress;
         private readonly System.Random rng;
         private int nextArrival;
-        private float skyOrbTimer = 5.5f;
-        private float trashDropTimer = 15f;
+        private float skyOrbTimer = 5.2f;
+        private float trashDropTimer = 14.5f;
+        private float surgeOrbTimer;
         private float invulnerable;
         private float pulseCooldown;
+        private float dashCooldown;
+        private float dashActive;
         private int endlessWaveScheduled;
 
         public readonly int Level;
         public readonly bool Endless;
         public LevelSpec Rules => CampaignCatalog.Levels[Mathf.Clamp(Level - 1, 0, CampaignCatalog.Levels.Length - 1)];
         public int Energy { get; private set; }
+        public float EnergyBounce { get; private set; }
         public int Integrity { get; private set; } = MaxIntegrity;
         public int MaxRobotHealth => 4 + progress.UpgradeLevel(0);
         public int RobotHealth { get; private set; }
-        public float RobotSpeedBonus => 1f + progress.UpgradeLevel(1) * 0.15f;
+        public float RobotSpeedBonus => (1f + progress.UpgradeLevel(1) * 0.15f) * (dashActive > 0f ? 2.15f : 1f);
         public float PulseCooldownLeft => Mathf.Max(0f, pulseCooldown);
         public float PulseCooldownMax => Mathf.Max(1.4f, 3.0f - progress.UpgradeLevel(2) * 0.45f);
-        public float MagnetRadius => 1.05f + progress.UpgradeLevel(3) * 0.45f;
+        public float DashCooldownLeft => Mathf.Max(0f, dashCooldown);
+        public bool IsDashing => dashActive > 0f;
+        public float MagnetRadius => 1.15f + progress.UpgradeLevel(3) * 0.45f;
+
+        // Original Eco-Clarity & Eco-Surge ("Dòng Chảy Xanh") + Combo Chain!
+        public float WaterClarity { get; private set; } = 45f;
+        public float EcoSurgeTime { get; private set; }
+        public bool IsEcoSurge => EcoSurgeTime > 0f;
+        public int ComboCount { get; private set; }
+        public float ComboTimer { get; private set; }
+
         public int Wave { get; private set; }
         public int TotalWaves => Endless ? Mathf.Max(Wave, endlessWaveScheduled) : Rules.Waves;
         public float WaveProgress => Endless
@@ -178,7 +204,7 @@ namespace BioBot
                     TurbineReady[s, r] = true;
 
             Say(endless
-                ? "CHẾ ĐỘ VÔ TẬN: Giữ vững hai tầng nước lâu nhất có thể!"
+                ? "CHẾ ĐỘ VÔ TẬN: Giữ Độ Trong Nước đạt 100% để kích hoạt Dòng Chảy Xanh!"
                 : Rules.Lesson, 8f);
 
             if (endless) ScheduleEndlessWave(1, 7f);
@@ -187,6 +213,36 @@ namespace BioBot
         }
 
         public static Vector2 CellToPixel(float col, float row) => new Vector2(58f + col * 60f, 109f + row * 54f);
+
+        public bool HasUpdraftAt(int row, int col)
+        {
+            var w = Trash[(int)Layer.Deep, row, col];
+            if (w != null && w.Active && CampaignCatalog.Trash[w.Spec].Effect == TrashEffect.Vent) return true;
+            var a = Allies[(int)Layer.Deep, row, col];
+            return a != null && (a.Spec == 8 || a.Spec == 12 || a.Spec == 17); // Periscope, Volt Eel, Barracuda create updraft!
+        }
+
+        private void AddEcoProgress(float clarityGain, int comboStep = 1)
+        {
+            if (comboStep > 0)
+            {
+                ComboCount = Mathf.Min(12, ComboCount + comboStep);
+                ComboTimer = 5.5f;
+            }
+            if (IsEcoSurge) return;
+            float mult = 1f + Mathf.Max(0, ComboCount - 1) * 0.15f;
+            WaterClarity = Mathf.Clamp(WaterClarity + clarityGain * mult, 0f, 100f);
+            if (WaterClarity >= 100f)
+            {
+                EcoSurgeTime = 10f;
+                surgeOrbTimer = 0.4f;
+                WaterClarity = 100f;
+                OnSfx?.Invoke(SfxId.Win);
+                OnShake?.Invoke(0.25f, 4f);
+                OnWaveBanner?.Invoke("✦ DÒNG CHẢY XANH! x2 TỐC ĐỘ BẮN & MƯA NĂNG LƯỢNG ✦");
+                Say("Độ Trong Nước đạt 100%! Toàn bộ hệ sinh thái bùng nổ sức mạnh trong 10 giây!", 5f);
+            }
+        }
 
         private void CreateCampaignArrivals()
         {
@@ -269,39 +325,19 @@ namespace BioBot
             int effLevel = Endless ? 8 : Level;
             AddWaste(0, Layer.Surface, 2, 3);
             AddWaste(1, Layer.Surface, 3, 2);
-            if (effLevel == 1)
-            {
-                AddWaste(0, Layer.Surface, 1, 5);
-                return;
-            }
+            if (effLevel == 1) { AddWaste(0, Layer.Surface, 1, 5); return; }
             AddWaste(2, Layer.Deep, 2, 2);
             AddWaste(3, Layer.Deep, 1, 4);
-            if (effLevel >= 3)
-            {
-                AddWaste(4, Layer.Deep, 2, 4);
-                AddWaste(5, Layer.Surface, 0, 5);
-            }
-            if (effLevel >= 4)
-            {
-                AddWaste(6, Layer.Deep, 3, 3);
-                AddWaste(7, Layer.Surface, 2, 6);
-            }
-            if (effLevel >= 5)
-            {
-                AddWaste(8, Layer.Deep, 2, 5);
-                AddWaste(9, Layer.Surface, 4, 5);
-            }
-            if (effLevel >= 6)
-            {
-                AddWaste(2, Layer.Deep, 4, 3);
-                AddWaste(0, Layer.Surface, 0, 4);
-            }
+            if (effLevel >= 3) { AddWaste(4, Layer.Deep, 2, 4); AddWaste(5, Layer.Surface, 0, 5); }
+            if (effLevel >= 4) { AddWaste(6, Layer.Deep, 3, 3); AddWaste(7, Layer.Surface, 2, 6); }
+            if (effLevel >= 5) { AddWaste(8, Layer.Deep, 2, 5); AddWaste(9, Layer.Surface, 4, 5); }
+            if (effLevel >= 6) { AddWaste(2, Layer.Deep, 4, 3); AddWaste(0, Layer.Surface, 0, 4); }
         }
 
         private void AddWaste(int id, Layer layer, int row, int col)
         {
             if (Trash[(int)layer, row, col] == null && Allies[(int)layer, row, col] == null)
-                Trash[(int)layer, row, col] = new Waste(id);
+                Trash[(int)layer, row, col] = new Waste(id, (float)rng.NextDouble() * 6.28f);
         }
 
         public bool CanPlant(int id, Layer layer, int row, int col, out string reason)
@@ -329,13 +365,15 @@ namespace BioBot
             Energy -= spec.Cost;
             float rechargeMult = Mathf.Max(0.45f, 1f - progress.UpgradeLevel(5) * 0.15f);
             CardCooldowns[id] = spec.Recharge * rechargeMult;
-            Allies[(int)layer, row, col] = new Ally(id, spec.Health);
+            Allies[(int)layer, row, col] = new Ally(id, spec.Health, 0f, (float)rng.NextDouble() * 6.28f);
 
             Vector2 px = CellToPixel(col, row);
             OnSfx?.Invoke(SfxId.Plant);
-            OnBurst?.Invoke(layer, px, new Color(0.55f, 0.95f, 0.72f, 1f), 10);
+            OnBurst?.Invoke(layer, px, new Color(0.55f, 0.95f, 0.72f, 1f), 11);
+            OnRing?.Invoke(layer, px, new Color(0.6f, 1f, 0.85f, 0.9f), 34f);
             OnFloatText?.Invoke(layer, px - new Vector2(0, 14), spec.Name, new Color(0.7f, 1f, 0.85f, 1f));
             if (spec.Reach != Reach.Local) OnAchievement?.Invoke("cross_layer");
+            AddEcoProgress(4f, 0);
             Say("Đã trồng " + spec.Name + "!", 2f);
             return true;
         }
@@ -368,26 +406,30 @@ namespace BioBot
             Trash[side, row, col] = null;
             int value = spec.Effect == TrashEffect.Float ? 15 : spec.Value;
             Energy += value;
+            EnergyBounce = 0.25f;
             CoinsEarned += 2;
-            Score += 20;
+            Score += 20 * Mathf.Max(1, ComboCount);
             Vector2 px = CellToPixel(col, row);
 
             if (spec.Effect == TrashEffect.Filament && Allies[side, row, col] == null)
             {
-                Allies[side, row, col] = new Ally(3, CampaignCatalog.Allies[3].Health);
+                Allies[side, row, col] = new Ally(3, CampaignCatalog.Allies[3].Health, 0f, (float)rng.NextDouble() * 6.28f);
                 FishRescued++;
                 CoinsEarned += 5;
-                Score += 60;
+                Score += 75;
+                AddEcoProgress(18f, 1);
                 OnSfx?.Invoke(SfxId.RescueFish);
-                OnBurst?.Invoke(layer, px, new Color(0.4f, 0.95f, 1f, 1f), 14);
+                OnBurst?.Invoke(layer, px, new Color(0.4f, 0.95f, 1f, 1f), 16);
+                OnRing?.Invoke(layer, px, new Color(0.45f, 1f, 0.95f, 1f), 46f);
                 OnFloatText?.Invoke(layer, px - new Vector2(0, 12), "CỨU CÁ! +25", new Color(0.45f, 1f, 0.95f, 1f));
                 OnAchievement?.Invoke("first_rescue");
                 Say("Đã cắt dây cước! Cá Vệt gia nhập phòng tuyến!", 3.2f);
             }
             else
             {
+                AddEcoProgress(10f, 1);
                 OnSfx?.Invoke(SfxId.CollectOrb);
-                OnBurst?.Invoke(layer, px, new Color(1f, 0.85f, 0.45f, 1f), 8);
+                OnBurst?.Invoke(layer, px, new Color(1f, 0.85f, 0.45f, 1f), 9);
                 OnFloatText?.Invoke(layer, px, $"+{value} NL", new Color(1f, 0.88f, 0.45f, 1f));
                 Say($"Thu gom {spec.Name}: +{value} NL.", 2.2f);
             }
@@ -408,7 +450,7 @@ namespace BioBot
             switch (spec.Effect)
             {
                 case TrashEffect.Float:
-                    return PushFloat(layer, row, col, -1);
+                    return PushFloat(layer, row, col, -1, true);
                 case TrashEffect.Filament:
                     return Collect(layer, row, col);
                 case TrashEffect.Ballast:
@@ -432,8 +474,9 @@ namespace BioBot
                 case TrashEffect.Vent:
                     if (waste.Active) return Refuse("Đã kích hoạt. Bấm F để tháo.");
                     waste.Active = true;
+                    AddEcoProgress(10f, 1);
                     OnSfx?.Invoke(SfxId.Plant);
-                    OnRing?.Invoke(layer, px, new Color(0.55f, 1f, 0.95f, 1f), 44f);
+                    OnRing?.Invoke(layer, px, new Color(0.55f, 1f, 0.95f, 1f), 46f);
                     OnFloatText?.Invoke(layer, px, "LIÊN TẦNG!", new Color(0.55f, 1f, 0.95f, 1f));
                     OnAchievement?.Invoke("cross_layer");
                     Say(spec.Name + " đã kích hoạt kết nối hai tầng!", 3f);
@@ -461,71 +504,54 @@ namespace BioBot
                     return true;
             }
             Trash[side, row, col] = null;
+            AddEcoProgress(10f, 1);
             OnSfx?.Invoke(SfxId.PushBottle);
             OnBurst?.Invoke(layer, px, new Color(0.65f, 0.95f, 1f, 1f), 10);
             Say("Đã kích hoạt " + spec.Name + "!", 2.5f);
             return true;
         }
 
-        public bool PushFloat(Layer layer, int row, int col, int direction)
+        // Smooth physical sliding bottle launch!
+        public bool PushFloat(Layer layer, int row, int col, int direction, bool turbo = false)
         {
             if (Ended || Respawn > 0f || direction == 0) return false;
             int side = (int)layer;
             var waste = Trash[side, row, col];
             if (waste == null || CampaignCatalog.Trash[waste.Spec].Effect != TrashEffect.Float) return false;
 
-            Vector2 px = CellToPixel(col, row);
-            if (col + direction < 0)
-            {
-                int bonus = 50 + progress.UpgradeLevel(4) * 15;
-                Energy += bonus;
-                BottlesDocked++;
-                CoinsEarned += 5;
-                Score += 50;
-                Trash[side, row, col] = null;
-                OnSfx?.Invoke(SfxId.Coin);
-                OnBurst?.Invoke(layer, px, new Color(1f, 0.9f, 0.4f, 1f), 14);
-                OnFloatText?.Invoke(layer, px, $"BẾN GOM! +{bonus} NL", new Color(1f, 0.92f, 0.42f, 1f));
-                if (BottlesDocked >= 3) OnAchievement?.Invoke("dock_master");
-                Say($"Chai Phao vào bến! +{bonus} NL & +5 Xu!", 3f);
-                return true;
-            }
-
-            if (direction > 0)
-            {
-                Enemy bowled = null;
-                foreach (var e in Enemies)
-                {
-                    if (e.Health > 0 && e.Layer == layer && e.Row == row && e.X >= col - 0.1f && e.X <= col + 1.45f)
-                    {
-                        bowled = e;
-                        break;
-                    }
-                }
-                if (bowled != null)
-                {
-                    Trash[side, row, col] = null;
-                    Damage(bowled, 8, true);
-                    if (CampaignCatalog.Enemies[bowled.Spec].Trait != Trait.Anchor)
-                        bowled.X = Mathf.Min(8.7f, bowled.X + 1.35f);
-                    Energy += 25;
-                    Score += 45;
-                    OnSfx?.Invoke(SfxId.ArmorCrack);
-                    OnShake?.Invoke(0.18f, 4f);
-                    OnBurst?.Invoke(layer, CellToPixel(bowled.X, row), new Color(1f, 0.72f, 0.35f, 1f), 14);
-                    OnFloatText?.Invoke(layer, CellToPixel(bowled.X, row) - new Vector2(0, 14), "BOWLING! -8", new Color(1f, 0.75f, 0.3f, 1f));
-                    OnAchievement?.Invoke("bottle_bowler");
-                    Say("BOWLING RÁC! Chai Phao húc bay kẻ địch (+25 NL)!", 3f);
-                    return true;
-                }
-            }
-
-            int nextCol = col + direction;
-            if (nextCol >= Columns || !Free(layer, row, nextCol)) return false;
-            Trash[side, row, nextCol] = waste;
             Trash[side, row, col] = null;
+            float speed = (turbo || dashActive > 0f) ? 8.2f : 5.6f;
+            SlidingBottles.Add(new SlidingBottle
+            {
+                Layer = layer,
+                Row = row,
+                X = col,
+                VelX = direction > 0 ? speed : -speed
+            });
+            Vector2 px = CellToPixel(col, row);
             OnSfx?.Invoke(SfxId.PushBottle);
-            OnBurst?.Invoke(layer, CellToPixel(nextCol, row), new Color(0.65f, 0.95f, 1f, 1f), 5);
+            OnBurst?.Invoke(layer, px, new Color(0.7f, 0.96f, 1f, 1f), 8);
+            Say(direction < 0 ? "Chai Phao lao về Bến Gom!" : "BOWLING RÁC! Chai Phao lao thẳng vào địch!", 2.2f);
+            return true;
+        }
+
+        public bool TriggerHydroDash(Layer layer, int row, float col, int dirX)
+        {
+            if (Ended || Respawn > 0f || dashCooldown > 0f) return false;
+            dashCooldown = 1.85f;
+            dashActive = 0.28f;
+            invulnerable = Mathf.Max(invulnerable, 0.45f);
+            Vector2 px = CellToPixel(col, row);
+            OnSfx?.Invoke(SfxId.Dive);
+            OnBurst?.Invoke(layer, px, new Color(0.55f, 0.98f, 1f, 1f), 14);
+            OnRing?.Invoke(layer, px, new Color(0.55f, 0.98f, 1f, 0.9f), 40f);
+            OnFloatText?.Invoke(layer, px - new Vector2(0, 14), "HYDRO-DASH!", new Color(0.55f, 0.98f, 1f, 1f));
+
+            // Instantly turbo-launch any bottle on current or adjacent cell!
+            int c = Mathf.Clamp(Mathf.RoundToInt(col), 0, Columns - 1);
+            int pushDir = dirX == 0 ? 1 : dirX;
+            if (!PushFloat(layer, row, c, pushDir, true) && c + pushDir >= 0 && c + pushDir < Columns)
+                PushFloat(layer, row, c + pushDir, pushDir, true);
             return true;
         }
 
@@ -536,21 +562,24 @@ namespace BioBot
             Energy -= 15;
             pulseCooldown = PulseCooldownMax;
             int dmg = 5 + progress.UpgradeLevel(2) * 2;
-            HitNear(layer, row, col, 1.65f, dmg, true);
+            HitNear(layer, row, col, 1.75f, dmg, true, true);
             int c = Mathf.Clamp(Mathf.RoundToInt(col), 0, Columns - 1);
             for (int x = Mathf.Max(0, c - 1); x <= Mathf.Min(Columns - 1, c + 1); x++)
             {
                 var w = Trash[(int)layer, row, x];
                 if (w != null && CampaignCatalog.Trash[w.Spec].Effect == TrashEffect.Spill)
+                {
                     Trash[(int)layer, row, x] = null;
+                    AddEcoProgress(8f, 0);
+                }
             }
             Vector2 px = CellToPixel(col, row);
             OnSfx?.Invoke(SfxId.Pulse);
-            OnShake?.Invoke(0.2f, 4.5f);
-            OnRing?.Invoke(layer, px, new Color(0.45f, 1f, 0.92f, 1f), 64f);
-            OnBurst?.Invoke(layer, px, new Color(0.55f, 1f, 0.95f, 1f), 14);
+            OnShake?.Invoke(0.22f, 5f);
+            OnRing?.Invoke(layer, px, new Color(0.45f, 1f, 0.92f, 1f), 72f);
+            OnBurst?.Invoke(layer, px, new Color(0.55f, 1f, 0.95f, 1f), 16);
             OnFloatText?.Invoke(layer, px - new Vector2(0, 18), "BIO-PULSE!", new Color(0.5f, 1f, 0.95f, 1f));
-            Say("Xung Bio-Bot! Phá giáp & đẩy lùi địch gần!", 2.5f);
+            Say("Xung Bio-Bot! Phá giáp, dọn dầu & đánh chìm địch!", 2.5f);
             return true;
         }
 
@@ -559,37 +588,36 @@ namespace BioBot
             for (int i = Orbs.Count - 1; i >= 0; i--)
             {
                 var orb = Orbs[i];
-                if (orb.Layer != layer) continue;
-                if (Vector2.Distance(orb.Pos, pixelPos) <= 26f)
+                if (orb.Layer != layer || orb.FlyingToBank) continue;
+                if (Vector2.Distance(orb.Pos, pixelPos) <= 28f)
                 {
-                    GrabOrb(i);
+                    StartOrbFly(orb);
                     return true;
                 }
             }
             return false;
         }
 
-        private void GrabOrb(int index)
+        private void StartOrbFly(BioOrb orb)
         {
-            var orb = Orbs[index];
-            int val = Mathf.RoundToInt(orb.Value);
-            Energy += val;
-            Score += 10;
+            orb.FlyingToBank = true;
+            orb.Life = 2f;
             OnSfx?.Invoke(SfxId.CollectOrb);
-            OnBurst?.Invoke(orb.Layer, orb.Pos, new Color(1f, 0.92f, 0.42f, 1f), 7);
-            OnFloatText?.Invoke(orb.Layer, orb.Pos, $"+{val}", new Color(1f, 0.94f, 0.45f, 1f));
-            Orbs.RemoveAt(index);
+            OnBurst?.Invoke(orb.Layer, orb.Pos, new Color(1f, 0.94f, 0.42f, 1f), 6);
+            OnFloatText?.Invoke(orb.Layer, orb.Pos, $"+{Mathf.RoundToInt(orb.Value)}", new Color(1f, 0.94f, 0.45f, 1f));
         }
 
-        public void SpawnOrb(Layer layer, Vector2 startPixel, float targetY, int value)
+        public void SpawnOrb(Layer layer, Vector2 startPixel, float targetY, int value, bool popArc = false)
         {
             Orbs.Add(new BioOrb
             {
                 Layer = layer,
                 Pos = startPixel,
+                VelX = popArc ? (float)(rng.NextDouble() * 44.0 - 22.0) : 0f,
+                VelY = popArc ? -115f : 15f,
                 TargetY = targetY,
                 Value = value,
-                Life = 11f,
+                Life = 12f,
                 Bob = (float)rng.NextDouble() * 6.28f
             });
         }
@@ -601,6 +629,40 @@ namespace BioBot
             Feedback = Mathf.Max(0f, Feedback - delta);
             invulnerable = Mathf.Max(0f, invulnerable - delta);
             pulseCooldown = Mathf.Max(0f, pulseCooldown - delta);
+            dashCooldown = Mathf.Max(0f, dashCooldown - delta);
+            dashActive = Mathf.Max(0f, dashActive - delta);
+            EnergyBounce = Mathf.Max(0f, EnergyBounce - delta);
+
+            if (ComboTimer > 0f)
+            {
+                ComboTimer = Mathf.Max(0f, ComboTimer - delta);
+                if (ComboTimer == 0f) ComboCount = 0;
+            }
+
+            if (EcoSurgeTime > 0f)
+            {
+                EcoSurgeTime = Mathf.Max(0f, EcoSurgeTime - delta);
+                WaterClarity = (EcoSurgeTime / 10f) * 100f;
+                surgeOrbTimer -= delta;
+                if (surgeOrbTimer <= 0f)
+                {
+                    surgeOrbTimer = 1.6f;
+                    Vector2 tgt = CellToPixel(1f + (float)rng.NextDouble() * 6.5f, rng.Next(Rows));
+                    SpawnOrb(robotLayer, new Vector2(tgt.x, 74f), tgt.y, 25);
+                }
+            }
+            else
+            {
+                // Uncleaned oil slicks slowly pollute water clarity
+                int slicks = 0;
+                for (int r = 0; r < Rows; r++)
+                    for (int c = 0; c < Columns; c++)
+                    {
+                        var w = Trash[(int)Layer.Surface, r, c];
+                        if (w != null && CampaignCatalog.Trash[w.Spec].Effect == TrashEffect.Spill) slicks++;
+                    }
+                if (slicks > 0) WaterClarity = Mathf.Max(5f, WaterClarity - slicks * 0.45f * delta);
+            }
 
             for (int i = 0; i < CardCooldowns.Length; i++)
                 if (CardCooldowns[i] > 0f) CardCooldowns[i] = Mathf.Max(0f, CardCooldowns[i] - delta);
@@ -618,17 +680,15 @@ namespace BioBot
             skyOrbTimer -= delta;
             if (skyOrbTimer <= 0f)
             {
-                skyOrbTimer = 6.2f;
-                float col = 1f + (float)rng.NextDouble() * 6.5f;
-                int row = rng.Next(Rows);
-                Vector2 target = CellToPixel(col, row);
-                SpawnOrb(robotLayer, new Vector2(target.x, 76f), target.y, 25);
+                skyOrbTimer = 6.0f;
+                Vector2 tgt = CellToPixel(1f + (float)rng.NextDouble() * 6.5f, rng.Next(Rows));
+                SpawnOrb(robotLayer, new Vector2(tgt.x, 74f), tgt.y, 25);
             }
 
             trashDropTimer -= delta;
             if (trashDropTimer <= 0f)
             {
-                trashDropTimer = 17f;
+                trashDropTimer = 16f;
                 int maxTrash = Endless ? CampaignCatalog.Trash.Length : Mathf.Min(CampaignCatalog.Trash.Length, Level * 2);
                 int pick = rng.Next(Mathf.Max(2, maxTrash));
                 var tSpec = CampaignCatalog.Trash[pick];
@@ -637,31 +697,56 @@ namespace BioBot
                 AddWaste(pick, tLayer, rng.Next(Rows), 2 + rng.Next(5));
             }
 
+            // Update Bio-Orbs (parabolic pop + fly to HUD Sun Bank!)
+            Vector2 bankPx = new Vector2(52f, 28f);
             Vector2 robotPx = CellToPixel(robotColumn, robotRow);
-            float magnetPx = MagnetRadius * 56f;
+            float magnetPx = MagnetRadius * 58f;
             for (int i = Orbs.Count - 1; i >= 0; i--)
             {
                 var orb = Orbs[i];
-                orb.Life -= delta;
                 orb.Bob += delta * 4.5f;
-                if (orb.Pos.y < orb.TargetY)
-                    orb.Pos.y = Mathf.Min(orb.TargetY, orb.Pos.y + 62f * delta);
+                if (orb.FlyingToBank)
+                {
+                    orb.Pos = Vector2.MoveTowards(orb.Pos, bankPx, 680f * delta);
+                    if (Vector2.Distance(orb.Pos, bankPx) < 16f)
+                    {
+                        Energy += Mathf.RoundToInt(orb.Value);
+                        EnergyBounce = 0.24f;
+                        Score += 10;
+                        Orbs.RemoveAt(i);
+                    }
+                    continue;
+                }
+
+                orb.Life -= delta;
+                if (orb.VelY != 0f || orb.Pos.y < orb.TargetY)
+                {
+                    orb.Pos.x = Mathf.Clamp(orb.Pos.x + orb.VelX * delta, 44f, 556f);
+                    orb.VelY += 320f * delta;
+                    orb.Pos.y += orb.VelY * delta;
+                    if (orb.Pos.y >= orb.TargetY)
+                    {
+                        orb.Pos.y = orb.TargetY;
+                        orb.VelX = 0f;
+                        orb.VelY = 0f;
+                    }
+                }
                 if (Respawn <= 0f && orb.Layer == robotLayer)
                 {
                     float dist = Vector2.Distance(orb.Pos, robotPx);
                     if (dist < magnetPx)
                     {
-                        orb.Pos = Vector2.MoveTowards(orb.Pos, robotPx, 240f * delta);
-                        if (dist < 24f)
-                        {
-                            GrabOrb(i);
-                            continue;
-                        }
+                        orb.Pos = Vector2.MoveTowards(orb.Pos, robotPx, 280f * delta);
+                        if (dist < 26f) { StartOrbFly(orb); continue; }
                     }
                 }
                 if (orb.Life <= 0f) Orbs.RemoveAt(i);
             }
 
+            // Update Sliding Bottles (real smooth bowling physics!)
+            TickSlidingBottles(delta);
+
+            // Spawn enemy arrivals
             while (nextArrival < arrivals.Count && arrivals[nextArrival].Time <= Time)
             {
                 var arrival = arrivals[nextArrival++];
@@ -678,7 +763,7 @@ namespace BioBot
                 }
                 var eSpec = CampaignCatalog.Enemies[arrival.Spec];
                 int hp = Endless ? Mathf.RoundToInt(eSpec.Health * (1f + (Wave - 1) * 0.14f)) : eSpec.Health;
-                Enemies.Add(new Enemy(arrival.Spec, arrival.Layer, arrival.Row, 8.75f, hp));
+                Enemies.Add(new Enemy(arrival.Spec, arrival.Layer, arrival.Row, 8.75f, hp, false, (float)rng.NextDouble() * 6.28f));
             }
 
             if (Endless && nextArrival >= arrivals.Count && Enemies.Count <= 2)
@@ -693,10 +778,10 @@ namespace BioBot
             for (int i = Turbines.Count - 1; i >= 0; i--)
             {
                 var tw = Turbines[i];
-                tw.X += 7.5f * delta;
+                tw.X += 7.8f * delta;
                 foreach (var e in Enemies)
                 {
-                    if (e.Health > 0 && e.Layer == tw.Layer && e.Row == tw.Row && Mathf.Abs(e.X - tw.X) < 0.7f)
+                    if (e.Health > 0 && e.Layer == tw.Layer && e.Row == tw.Row && Mathf.Abs(e.X - tw.X) < 0.72f)
                     {
                         var tr = CampaignCatalog.Enemies[e.Spec].Trait;
                         Damage(e, tr == Trait.Boss ? 28 : 999, true);
@@ -726,6 +811,67 @@ namespace BioBot
             }
         }
 
+        private void TickSlidingBottles(float delta)
+        {
+            for (int i = SlidingBottles.Count - 1; i >= 0; i--)
+            {
+                var b = SlidingBottles[i];
+                b.X += b.VelX * delta;
+
+                // Hit left Eco-Dock -> 2x Energy + Coins + Clarity!
+                if (b.X < -0.15f)
+                {
+                    int bonus = 50 + progress.UpgradeLevel(4) * 15;
+                    Energy += bonus;
+                    EnergyBounce = 0.28f;
+                    BottlesDocked++;
+                    CoinsEarned += 5;
+                    Score += 50 * Mathf.Max(1, ComboCount);
+                    AddEcoProgress(16f, 1);
+                    Vector2 px = CellToPixel(0, b.Row);
+                    OnSfx?.Invoke(SfxId.Coin);
+                    OnBurst?.Invoke(b.Layer, px, new Color(1f, 0.92f, 0.42f, 1f), 16);
+                    OnFloatText?.Invoke(b.Layer, px, $"BẾN GOM! +{bonus} NL", new Color(1f, 0.94f, 0.42f, 1f));
+                    if (BottlesDocked >= 3) OnAchievement?.Invoke("dock_master");
+                    SlidingBottles.RemoveAt(i);
+                    continue;
+                }
+
+                // Bowling into enemies!
+                if (b.VelX > 0f)
+                {
+                    for (int eIdx = 0; eIdx < Enemies.Count; eIdx++)
+                    {
+                        var e = Enemies[eIdx];
+                        if (e.Health <= 0 || e.Layer != b.Layer || e.Row != b.Row || b.Hit.Contains(e)) continue;
+                        if (Mathf.Abs(e.X - b.X) <= 0.55f)
+                        {
+                            b.Hit.Add(e);
+                            b.Hits++;
+                            Damage(e, 9, true);
+                            if (CampaignCatalog.Enemies[e.Spec].Trait != Trait.Anchor &&
+                                CampaignCatalog.Enemies[e.Spec].Trait != Trait.Boss)
+                                e.X = Mathf.Min(8.7f, e.X + 1.3f);
+                            Energy += 20;
+                            Score += 50;
+                            AddEcoProgress(12f, 1);
+                            Vector2 ePx = CellToPixel(e.X, e.Row);
+                            OnSfx?.Invoke(SfxId.ArmorCrack);
+                            OnShake?.Invoke(0.18f, 4.5f);
+                            OnBurst?.Invoke(b.Layer, ePx, new Color(1f, 0.72f, 0.35f, 1f), 14);
+                            OnFloatText?.Invoke(b.Layer, ePx - new Vector2(0, 14),
+                                b.Hits > 1 ? $"STRIKE x{b.Hits}!" : "BOWLING! -9", new Color(1f, 0.8f, 0.3f, 1f));
+                            OnAchievement?.Invoke("bottle_bowler");
+                            if (b.Hits >= 2) { SlidingBottles.RemoveAt(i); break; }
+                        }
+                    }
+                    if (i >= SlidingBottles.Count) continue;
+                }
+
+                if (b.X > Columns + 0.3f) SlidingBottles.RemoveAt(i);
+            }
+        }
+
         private void TickTile(Layer layer, int row, int col, float delta)
         {
             int side = (int)layer;
@@ -748,7 +894,7 @@ namespace BioBot
                     {
                         Shock(layer, row, col, 4);
                         Shock(CampaignCatalog.Opposite(layer), row, col, 4);
-                        waste.Cooldown = 4.8f;
+                        waste.Cooldown = 4.6f;
                     }
                 }
             }
@@ -756,6 +902,8 @@ namespace BioBot
             var ally = Allies[side, row, col];
             if (ally == null) return;
             if (ally.PlantPop > 0f) ally.PlantPop = Mathf.Max(0f, ally.PlantPop - delta);
+            if (ally.FireAnim > 0f) ally.FireAnim = Mathf.Max(0f, ally.FireAnim - delta);
+            if (ally.HurtAnim > 0f) ally.HurtAnim = Mathf.Max(0f, ally.HurtAnim - delta);
             if (ally.Temporary > 0f)
             {
                 ally.Temporary -= delta;
@@ -763,7 +911,10 @@ namespace BioBot
             }
 
             ally.Jammed = Mathf.Max(0f, ally.Jammed - delta);
-            ally.Cooldown -= delta * (ally.Jammed > 0f ? 0.4f : 1f);
+            float rateMult = (ally.Jammed > 0f ? 0.42f : 1f) * (IsEcoSurge ? 1.95f : 1f);
+            if (layer == Layer.Surface && HasUpdraftAt(row, col)) rateMult *= 1.55f;
+
+            ally.Cooldown -= delta * rateMult;
             if (ally.Cooldown > 0f) return;
 
             var spec = CampaignCatalog.Allies[ally.Spec];
@@ -771,10 +922,11 @@ namespace BioBot
 
             if (spec.Ability == Ability.Income)
             {
-                ally.Cooldown = 7.5f;
+                ally.Cooldown = 7.4f;
+                ally.FireAnim = 0.26f;
                 Vector2 p = CellToPixel(col, row);
-                SpawnOrb(layer, p - new Vector2(0, 12), p.y + 8f, spec.Power);
-                OnBurst?.Invoke(layer, p, new Color(1f, 0.94f, 0.45f, 1f), 5);
+                SpawnOrb(layer, p - new Vector2(0, 10), p.y + 12f, spec.Power, true);
+                OnBurst?.Invoke(layer, p, new Color(1f, 0.94f, 0.45f, 1f), 6);
                 return;
             }
 
@@ -786,7 +938,8 @@ namespace BioBot
                     if (nearby != null && CampaignCatalog.Trash[nearby.Spec].Effect == TrashEffect.Spill)
                     {
                         Trash[side, row, x] = null;
-                        OnBurst?.Invoke(layer, CellToPixel(x, row), new Color(0.55f, 1f, 0.95f, 1f), 8);
+                        AddEcoProgress(12f, 0);
+                        OnBurst?.Invoke(layer, CellToPixel(x, row), new Color(0.55f, 1f, 0.95f, 1f), 9);
                     }
                 }
             }
@@ -795,13 +948,14 @@ namespace BioBot
             if (spec.Reach != Reach.Other) acted |= FireAlly(spec, layer, layer, row, col);
             if (spec.Reach != Reach.Local) acted |= FireAlly(spec, layer, CampaignCatalog.Opposite(layer), row, col);
 
+            if (acted) ally.FireAnim = 0.24f;
             ally.Cooldown = acted
                 ? spec.Ability switch
                 {
                     Ability.Repair => 2.8f,
                     Ability.Zap => 0.95f,
-                    Ability.Pulse => 2.2f,
-                    _ => 1.35f
+                    Ability.Pulse => 2.1f,
+                    _ => 1.32f
                 }
                 : 0.35f;
         }
@@ -870,8 +1024,8 @@ namespace BioBot
             {
                 Layer = target,
                 Row = row,
-                X = col + 0.3f,
-                Speed = kind == ProjectileKind.Zap ? 7.4f : kind == ProjectileKind.Spear ? 6.6f : 5.4f,
+                X = col + 0.35f,
+                Speed = kind == ProjectileKind.Zap ? 7.6f : kind == ProjectileKind.Spear ? 6.8f : 5.6f,
                 Damage = spec.Ability == Ability.Slow ? 1 : power,
                 PierceLeft = spec.Ability == Ability.Pierce ? 2 : 1,
                 Kind = kind,
@@ -881,7 +1035,7 @@ namespace BioBot
             });
 
             if (from != target)
-                OnRing?.Invoke(target, CellToPixel(col, row), new Color(0.5f, 0.95f, 1f, 0.9f), 26f);
+                OnRing?.Invoke(target, CellToPixel(col, row), new Color(0.5f, 0.95f, 1f, 0.95f), 28f);
             OnSfx?.Invoke(SfxId.Shoot);
             return true;
         }
@@ -892,6 +1046,7 @@ namespace BioBot
             {
                 var p = Projectiles[i];
                 p.X += p.Speed * delta;
+                p.Age += delta;
                 if (p.X > Columns + 0.3f) { Projectiles.RemoveAt(i); continue; }
 
                 bool consumed = false;
@@ -909,9 +1064,9 @@ namespace BioBot
                             e.X = Mathf.Min(8.8f, e.X + 0.55f);
 
                         Vector2 hitPx = CellToPixel(e.X, e.Row);
-                        Color burstCol = p.Kind == ProjectileKind.Zap ? new Color(0.55f, 0.9f, 1f, 1f) :
+                        Color burstCol = p.Kind == ProjectileKind.Zap ? new Color(1f, 0.92f, 0.45f, 1f) :
                             p.Slow ? new Color(0.6f, 0.95f, 1f, 1f) : new Color(0.7f, 1f, 0.72f, 1f);
-                        OnBurst?.Invoke(p.Layer, hitPx, burstCol, 5);
+                        OnBurst?.Invoke(p.Layer, hitPx, burstCol, 6);
                         OnSfx?.Invoke(SfxId.Hit);
 
                         p.PierceLeft--;
@@ -922,9 +1077,10 @@ namespace BioBot
             }
         }
 
-        private void Damage(Enemy enemy, int amount, bool pulse)
+        private void Damage(Enemy enemy, int amount, bool pulse, bool canSink = false)
         {
-            var trait = CampaignCatalog.Enemies[enemy.Spec].Trait;
+            var spec = CampaignCatalog.Enemies[enemy.Spec];
+            var trait = spec.Trait;
             if (trait == Trait.Shell && !enemy.Broken && !enemy.Small)
             {
                 if (pulse)
@@ -942,6 +1098,19 @@ namespace BioBot
 
             enemy.Health -= amount;
             enemy.Flash = 0.14f;
+            enemy.HurtAnim = 0.16f;
+
+            // Original Water-Column Physics: Heavy Pulse on Surface can SINK adaptable enemies into Deep!
+            if (canSink && enemy.Health > 0 && enemy.Layer == Layer.Surface && spec.Habitat == Habitat.Both &&
+                trait != Trait.Boss && !enemy.Shifted)
+            {
+                enemy.Shifted = true;
+                enemy.Layer = Layer.Deep;
+                enemy.Slow = Mathf.Max(enemy.Slow, 2.2f);
+                Vector2 px = CellToPixel(enemy.X, enemy.Row);
+                OnRing?.Invoke(Layer.Surface, px, new Color(0.55f, 0.95f, 1f, 1f), 42f);
+                OnFloatText?.Invoke(Layer.Surface, px - new Vector2(0, 12), "ĐÁNH CHÌM!", new Color(0.55f, 0.95f, 1f, 1f));
+            }
         }
 
         private void TickEnemy(int index, float delta, Layer heroLayer, int heroRow, float heroCol)
@@ -957,14 +1126,15 @@ namespace BioBot
                 Kills++;
                 Score += spec.Bounty * 5;
                 CoinsEarned += spec.Trait == Trait.Boss ? 50 : (rng.Next(3) == 0 ? 2 : 1);
-                OnBurst?.Invoke(enemy.Layer, px, new Color(1f, 0.65f, 0.45f, 1f), spec.Trait == Trait.Boss ? 28 : 10);
-                if (rng.Next(100) < (spec.Trait == Trait.Boss ? 100 : 38))
-                    SpawnOrb(enemy.Layer, px - new Vector2(0, 8), px.y + 4, spec.Trait == Trait.Boss ? 50 : 15);
+                AddEcoProgress(spec.Trait == Trait.Boss ? 40f : 4.5f, 0);
+                OnBurst?.Invoke(enemy.Layer, px, new Color(1f, 0.65f, 0.45f, 1f), spec.Trait == Trait.Boss ? 30 : 12);
+                if (rng.Next(100) < (spec.Trait == Trait.Boss ? 100 : 40))
+                    SpawnOrb(enemy.Layer, px - new Vector2(0, 6), px.y + 8f, spec.Trait == Trait.Boss ? 50 : 15, true);
                 if (spec.Trait == Trait.Spill) AddWaste(7, enemy.Layer, enemy.Row, col);
                 if (spec.Trait == Trait.Split && !enemy.Small)
                 {
-                    Enemies.Add(new Enemy(enemy.Spec, enemy.Layer, enemy.Row, enemy.X + 0.15f, 5, true));
-                    Enemies.Add(new Enemy(enemy.Spec, enemy.Layer, enemy.Row, enemy.X - 0.15f, 5, true));
+                    Enemies.Add(new Enemy(enemy.Spec, enemy.Layer, enemy.Row, enemy.X + 0.15f, 5, true, 0f));
+                    Enemies.Add(new Enemy(enemy.Spec, enemy.Layer, enemy.Row, enemy.X - 0.15f, 5, true, 3.14f));
                 }
                 return;
             }
@@ -972,6 +1142,9 @@ namespace BioBot
             enemy.Attack = Mathf.Max(0f, enemy.Attack - delta);
             enemy.Slow = Mathf.Max(0f, enemy.Slow - delta);
             enemy.Flash = Mathf.Max(0f, enemy.Flash - delta);
+            enemy.BiteAnim = Mathf.Max(0f, enemy.BiteAnim - delta);
+            enemy.HurtAnim = Mathf.Max(0f, enemy.HurtAnim - delta);
+            enemy.WalkPhase += delta * (enemy.Slow > 0f ? 3.5f : 7.5f);
             enemy.Recovery += delta;
 
             if (spec.Trait == Trait.Filter && enemy.Recovery >= 4.5f)
@@ -988,7 +1161,7 @@ namespace BioBot
                     enemy.BossTimer = 7.5f;
                     enemy.Layer = CampaignCatalog.Opposite(enemy.Layer);
                     enemy.Row = rng.Next(Rows);
-                    OnRing?.Invoke(enemy.Layer, CellToPixel(enemy.X, enemy.Row), new Color(1f, 0.35f, 0.35f, 1f), 58f);
+                    OnRing?.Invoke(enemy.Layer, CellToPixel(enemy.X, enemy.Row), new Color(1f, 0.35f, 0.35f, 1f), 60f);
                     OnShake?.Invoke(0.25f, 5f);
                     int escort = rng.Next(4);
                     Enemies.Add(new Enemy(escort, enemy.Layer, rng.Next(Rows), Mathf.Min(8.5f, enemy.X + 0.4f),
@@ -1002,7 +1175,7 @@ namespace BioBot
             {
                 enemy.Shifted = true;
                 enemy.Layer = CampaignCatalog.Opposite(enemy.Layer);
-                OnRing?.Invoke(enemy.Layer, CellToPixel(enemy.X, enemy.Row), new Color(0.55f, 0.9f, 1f, 1f), 32f);
+                OnRing?.Invoke(enemy.Layer, CellToPixel(enemy.X, enemy.Row), new Color(0.55f, 0.9f, 1f, 1f), 34f);
             }
 
             int side = (int)enemy.Layer;
@@ -1044,20 +1217,23 @@ namespace BioBot
                 if (enemy.Attack <= 0f)
                 {
                     enemy.Attack = 0.95f;
+                    enemy.BiteAnim = 0.25f;
+                    ally.HurtAnim = 0.18f;
                     int bite = spec.Trait == Trait.Boss ? 5 : spec.Trait == Trait.Ram ? 3 : 1;
                     ally.Health -= bite;
+                    OnBurst?.Invoke(enemy.Layer, CellToPixel(col, enemy.Row), new Color(1f, 0.85f, 0.55f, 1f), 4);
                     var def = CampaignCatalog.Allies[ally.Spec];
                     if (def.Ability == Ability.Guard) Damage(enemy, def.Power, false);
                     if (ally.Health <= 0)
                     {
                         Allies[side, enemy.Row, col] = null;
-                        OnBurst?.Invoke(enemy.Layer, CellToPixel(col, enemy.Row), new Color(0.8f, 0.9f, 0.7f, 1f), 8);
+                        OnBurst?.Invoke(enemy.Layer, CellToPixel(col, enemy.Row), new Color(0.8f, 0.9f, 0.7f, 1f), 10);
                     }
                 }
                 return;
             }
 
-            float speed = spec.Speed * (enemy.Slow > 0f ? 0.45f : 1f) * (enemy.Small ? 1.5f : 1f);
+            float speed = spec.Speed * (enemy.Slow > 0f ? 0.45f : 1f) * (IsEcoSurge ? 0.72f : 1f) * (enemy.Small ? 1.5f : 1f);
             var waste = Trash[side, enemy.Row, col];
             if (spec.Trait == Trait.Skim && waste != null && CampaignCatalog.Trash[waste.Spec].Effect == TrashEffect.Spill)
                 speed *= 1.85f;
@@ -1108,16 +1284,16 @@ namespace BioBot
             return false;
         }
 
-        private void HitNear(Layer layer, int row, float col, float range, int power, bool pulse)
+        private void HitNear(Layer layer, int row, float col, float range, int power, bool pulse, bool canSink = false)
         {
             foreach (var e in Enemies)
                 if (e.Health > 0 && e.Layer == layer && e.Row == row && Mathf.Abs(e.X - col) <= range)
-                    Damage(e, power, pulse);
+                    Damage(e, power, pulse, canSink);
         }
 
         private void Shock(Layer layer, int row, int col, int power)
         {
-            HitNear(layer, row, col, 1.55f, power, true);
+            HitNear(layer, row, col, 1.55f, power, true, true);
             AddBeam(layer, row, Mathf.Max(0, col - 1), Mathf.Min(8, col + 1), new Color(0.55f, 0.95f, 1f, 1f), true);
             OnRing?.Invoke(layer, CellToPixel(col, row), new Color(0.55f, 0.95f, 1f, 1f), 46f);
         }
@@ -1152,7 +1328,7 @@ namespace BioBot
                 Vector2 rPx = CellToPixel(board.RobotColumn, cell.y);
                 foreach (var o in Orbs)
                 {
-                    if (o.Layer == curLayer)
+                    if (o.Layer == curLayer && !o.FlyingToBank)
                     {
                         float d = Vector2.Distance(o.Pos, rPx);
                         if (d < best) { best = d; nearest = o; }
@@ -1171,7 +1347,7 @@ namespace BioBot
             {
                 var eff = CampaignCatalog.Trash[w.Spec].Effect;
                 if (eff == TrashEffect.Filament) Collect(curLayer, cell.y, cell.x);
-                else if (eff == TrashEffect.Float) PushFloat(curLayer, cell.y, cell.x, -1);
+                else if (eff == TrashEffect.Float) PushFloat(curLayer, cell.y, cell.x, -1, true);
                 else if (!w.Active && (eff is TrashEffect.Mirror or TrashEffect.Vent or TrashEffect.Loom)) UseTrash(curLayer, cell.y, cell.x);
                 else Collect(curLayer, cell.y, cell.x);
             }
