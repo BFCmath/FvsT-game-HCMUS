@@ -29,6 +29,10 @@ namespace BioBot
 
         public bool IsUnderwater => underwater;
         public bool IsTransitioning => transitioning;
+        public bool TargetUnderwater => targetUnderwater;
+        public float TransitionProgress => transitioning ? Mathf.Clamp01(transitionElapsed / TransitionSeconds) : 0f;
+        public Camera BoardCamera => boardCamera;
+        public Transform UnderwaterOrigin => underwaterOrigin;
         public Rect PixelRect => boardCamera.pixelRect;
         public bool CampaignHud { get; set; }
         public Vector2 LocalRobotPosition => robotBody.position - (underwater ? (Vector2)underwaterOrigin.position : Vector2.zero);
@@ -37,6 +41,22 @@ namespace BioBot
         public float TransitionOpacity => transitioning
             ? Mathf.SmoothStep(0f, 1f, 1f - Mathf.Abs(2f * Mathf.Clamp01(transitionElapsed / TransitionSeconds) - 1f))
             : 0f;
+
+        public void RequestDive(bool dive) => BeginTransition(dive);
+        public void ToggleLayer() => BeginTransition(!underwater);
+
+        public void MoveRobotToward(Vector2 localTarget, float speedScale = 1f)
+        {
+            Vector2 current = LocalRobotPosition;
+            Vector2 delta = localTarget - current;
+            if (delta.sqrMagnitude < 0.008f)
+            {
+                robotBody.linearVelocity = Vector2.zero;
+                return;
+            }
+            Vector2 dir = delta.normalized;
+            robotBody.linearVelocity = dir * (3.5f * speedScale);
+        }
 
         public void ReturnToDock()
         {
@@ -69,6 +89,8 @@ namespace BioBot
                     BeginTransition(true);
                 else if (keyboard.eKey.wasPressedThisFrame)
                     BeginTransition(false);
+                else if (keyboard.tabKey.wasPressedThisFrame)
+                    BeginTransition(!underwater);
             }
 
             if (!transitioning)

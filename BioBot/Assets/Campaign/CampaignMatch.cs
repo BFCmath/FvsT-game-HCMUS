@@ -1,22 +1,27 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
 namespace BioBot
 {
+    public enum ProjectileKind { Seed, Bubble, Spear, Zap, Push, Geyser, Slow }
+
     public sealed class CampaignMatch
     {
-        public const int Rows = 5, Columns = 9, MaxIntegrity = 8, MaxRobot = 4;
+        public const int Rows = 5, Columns = 9, MaxIntegrity = 10;
 
         public sealed class Ally
         {
             public readonly int Spec;
-            public int Health;
-            public float Cooldown, Jammed, Temporary;
-            public Ally(int spec, int health, float temporary = 0)
+            public int Health, MaxHealth;
+            public float Cooldown, Jammed, Temporary, PlantPop;
+            public Ally(int spec, int health, float temporary = 0f)
             {
                 Spec = spec;
-                Health = health;
+                Health = MaxHealth = health;
                 Temporary = temporary;
+                PlantPop = 0.25f;
+                Cooldown = 0.6f;
             }
         }
 
@@ -33,22 +38,52 @@ namespace BioBot
             public readonly int Spec;
             public Layer Layer;
             public int Row, Health, MaxHealth;
-            public float X, Attack, Slow, Recovery, Flash;
+            public float X, Attack, Slow, Recovery, Flash, BossTimer;
             public bool Shifted, Broken, Small;
 
             public Enemy(int spec, Layer layer, int row, float x, int health, bool small = false)
             {
-                Spec = spec; Layer = layer; Row = row; X = x;
-                Health = MaxHealth = health; Small = small;
+                Spec = spec;
+                Layer = layer;
+                Row = row;
+                X = x;
+                Health = MaxHealth = health;
+                Small = small;
+                BossTimer = 7f;
             }
         }
 
-        public sealed class Effect
+        public sealed class Projectile
+        {
+            public Layer Layer;
+            public int Row, Damage, PierceLeft;
+            public float X, Speed;
+            public ProjectileKind Kind;
+            public bool Pulse, Slow, Push;
+            public readonly HashSet<Enemy> Hit = new HashSet<Enemy>();
+        }
+
+        public sealed class BioOrb
+        {
+            public Layer Layer;
+            public Vector2 Pos;
+            public float TargetY, Value, Life, Bob;
+        }
+
+        public sealed class TurbineWave
+        {
+            public Layer Layer;
+            public int Row;
+            public float X;
+        }
+
+        public sealed class BeamEffect
         {
             public Layer Layer;
             public int Row;
             public float From, To, Left;
-            public bool Pulse;
+            public Color Color;
+            public bool Thick;
         }
 
         private struct Arrival
@@ -60,258 +95,571 @@ namespace BioBot
 
         public readonly Ally[,,] Allies = new Ally[2, Rows, Columns];
         public readonly Waste[,,] Trash = new Waste[2, Rows, Columns];
+        public readonly bool[,] TurbineReady = new bool[2, Rows];
+        public readonly float[] CardCooldowns = new float[CampaignCatalog.Allies.Length];
         public readonly List<Enemy> Enemies = new List<Enemy>();
-        public readonly List<Effect> Effects = new List<Effect>();
+        public readonly List<Projectile> Projectiles = new List<Projectile>();
+        public readonly List<BioOrb> Orbs = new List<BioOrb>();
+        public readonly List<TurbineWave> Turbines = new List<TurbineWave>();
+        public readonly List<BeamEffect> Beams = new List<BeamEffect>();
 
         private readonly List<Arrival> arrivals = new List<Arrival>();
+        private readonly CampaignProgress progress;
+        private readonly System.Random rng;
         private int nextArrival;
-        private float income = 3f;
+        private float skyOrbTimer = 5.5f;
+        private float trashDropTimer = 15f;
         private float invulnerable;
         private float pulseCooldown;
+        private int endlessWaveScheduled;
 
         public readonly int Level;
-        public LevelSpec Rules => CampaignCatalog.Levels[Level - 1];
+        public readonly bool Endless;
+        public LevelSpec Rules => CampaignCatalog.Levels[Mathf.Clamp(Level - 1, 0, CampaignCatalog.Levels.Length - 1)];
         public int Energy { get; private set; }
         public int Integrity { get; private set; } = MaxIntegrity;
-        public int RobotHealth { get; private set; } = MaxRobot;
+        public int MaxRobotHealth => 4 + progress.UpgradeLevel(0);
+        public int RobotHealth { get; private set; }
+        public float RobotSpeedBonus => 1f + progress.UpgradeLevel(1) * 0.15f;
+        public float PulseCooldownLeft => Mathf.Max(0f, pulseCooldown);
+        public float PulseCooldownMax => Mathf.Max(1.4f, 3.0f - progress.UpgradeLevel(2) * 0.45f);
+        public float MagnetRadius => 1.05f + progress.UpgradeLevel(3) * 0.45f;
         public int Wave { get; private set; }
+        public int TotalWaves => Endless ? Mathf.Max(Wave, endlessWaveScheduled) : Rules.Waves;
+        public float WaveProgress => Endless
+            ? Mathf.Clamp01((Time % 22f) / 22f)
+            : (arrivals.Count == 0 ? 1f : Mathf.Clamp01(nextArrival / (float)arrivals.Count));
         public float Time { get; private set; }
         public float Respawn { get; private set; }
         public bool Won { get; private set; }
         public bool Lost => Integrity <= 0;
         public bool Ended => Won || Lost;
         public string Message { get; private set; }
-        public float NextAttack => nextArrival < arrivals.Count ? Mathf.Max(0, arrivals[nextArrival].Time - Time) : -1;
+        public float Feedback { get; private set; }
+        public int Score { get; private set; }
+        public int CoinsEarned { get; private set; }
+        public int BottlesDocked { get; private set; }
+        public int FishRescued { get; private set; }
+        public int Kills { get; private set; }
+        public float NextAttack => nextArrival < arrivals.Count ? Mathf.Max(0f, arrivals[nextArrival].Time - Time) : -1f;
         public int NextRow => nextArrival < arrivals.Count ? arrivals[nextArrival].Row : -1;
         public Layer NextLayer => nextArrival < arrivals.Count ? arrivals[nextArrival].Layer : Layer.Surface;
-        public float Feedback { get; private set; }
 
-        public CampaignMatch(int level)
+        public Enemy ActiveBoss
+        {
+            get
+            {
+                for (int i = 0; i < Enemies.Count; i++)
+                    if (CampaignCatalog.Enemies[Enemies[i].Spec].Trait == Trait.Boss)
+                        return Enemies[i];
+                return null;
+            }
+        }
+
+        public Action<SfxId> OnSfx;
+        public Action<Layer, Vector2, Color, int> OnBurst;
+        public Action<Layer, Vector2, Color, float> OnRing;
+        public Action<Layer, Vector2, string, Color> OnFloatText;
+        public Action<float, float> OnShake;
+        public Action<string> OnWaveBanner;
+        public Action<string> OnAchievement;
+
+        public CampaignMatch(int level, CampaignProgress progress, bool endless = false)
         {
             Level = level;
-            Energy = Rules.Budget;
-            Say(Rules.Lesson, 10f);
-            CreateArrivals();
+            Endless = endless;
+            this.progress = progress;
+            rng = new System.Random(1021 + level * 73 + (endless ? Environment.TickCount & 0xFFFF : 0));
+            RobotHealth = MaxRobotHealth;
+            Energy = (endless ? 250 : Rules.Budget) + progress.UpgradeLevel(4) * 15;
+
+            for (int s = 0; s < 2; s++)
+                for (int r = 0; r < Rows; r++)
+                    TurbineReady[s, r] = true;
+
+            Say(endless
+                ? "CHẾ ĐỘ VÔ TẬN: Giữ vững hai tầng nước lâu nhất có thể!"
+                : Rules.Lesson, 8f);
+
+            if (endless) ScheduleEndlessWave(1, 7f);
+            else CreateCampaignArrivals();
             PlaceStartingTrash();
         }
 
-        private void CreateArrivals()
+        public static Vector2 CellToPixel(float col, float row) => new Vector2(58f + col * 60f, 109f + row * 54f);
+
+        private void CreateCampaignArrivals()
         {
-            var random = new System.Random(1021 + Level * 31);
-            float start = 10f;
+            float start = 8.5f;
             var eligible = new List<int>();
             for (int i = 0; i < CampaignCatalog.Enemies.Length; i++)
-                if (CampaignCatalog.Enemies[i].Unlock <= Level)
+            {
+                var spec = CampaignCatalog.Enemies[i];
+                if (spec.Trait != Trait.Boss && spec.Unlock <= Level)
                     eligible.Add(i);
+            }
 
             for (int wave = 1; wave <= Rules.Waves; wave++)
             {
                 var introduced = eligible.FindAll(id => CampaignCatalog.Enemies[id].Unlock == Level);
-                int count = 2 + Level + wave;
+                int count = 3 + Level + wave * 2;
+                float spacing = Mathf.Max(1.35f, 2.5f - Level * 0.12f);
                 for (int n = 0; n < count; n++)
                 {
-                    int spec = n < introduced.Count && wave == 1 ? introduced[n] :
-                        eligible[random.Next(eligible.Count)];
-                    Habitat habitat = CampaignCatalog.Enemies[spec].Habitat;
-                    Layer target = random.Next(100) < Rules.SurfaceWeight ? Layer.Surface : Layer.Deep;
-                    if (!CampaignCatalog.Fits(habitat, target))
-                        target = CampaignCatalog.Opposite(target);
-                    int row = Level == 1 && wave == 1 ? 2 : (n + wave + random.Next(3)) % Rows;
-                    arrivals.Add(new Arrival { Time = start + n * 2.4f, Wave = wave, Spec = spec, Row = row, Layer = target });
+                    int spec = (n < introduced.Count && wave == 1)
+                        ? introduced[n]
+                        : eligible[rng.Next(eligible.Count)];
+                    Habitat hab = CampaignCatalog.Enemies[spec].Habitat;
+                    Layer target = rng.Next(100) < Rules.SurfaceWeight ? Layer.Surface : Layer.Deep;
+                    if (!CampaignCatalog.Fits(hab, target)) target = CampaignCatalog.Opposite(target);
+                    int row = (Level == 1 && wave == 1 && n < 2) ? 2 : rng.Next(Rows);
+                    arrivals.Add(new Arrival { Time = start + n * spacing, Wave = wave, Spec = spec, Row = row, Layer = target });
                 }
-                start += count * 2.4f + 12f;
+
+                if (Rules.HasBoss && wave == Rules.Waves)
+                {
+                    arrivals.Add(new Arrival
+                    {
+                        Time = start + count * spacing + 1.5f,
+                        Wave = wave,
+                        Spec = CampaignCatalog.Enemies.Length - 1,
+                        Row = 2,
+                        Layer = Layer.Surface
+                    });
+                }
+                start += count * spacing + 10.5f;
+            }
+        }
+
+        private void ScheduleEndlessWave(int waveNum, float startTime)
+        {
+            endlessWaveScheduled = waveNum;
+            int count = 5 + waveNum * 2;
+            float spacing = Mathf.Max(0.95f, 2.2f - waveNum * 0.08f);
+            for (int n = 0; n < count; n++)
+            {
+                int spec = rng.Next(CampaignCatalog.Enemies.Length - 1);
+                Habitat hab = CampaignCatalog.Enemies[spec].Habitat;
+                Layer target = rng.Next(100) < 52 ? Layer.Surface : Layer.Deep;
+                if (!CampaignCatalog.Fits(hab, target)) target = CampaignCatalog.Opposite(target);
+                arrivals.Add(new Arrival
+                {
+                    Time = startTime + n * spacing,
+                    Wave = waveNum,
+                    Spec = spec,
+                    Row = rng.Next(Rows),
+                    Layer = target
+                });
+            }
+            if (waveNum % 5 == 0)
+            {
+                arrivals.Add(new Arrival
+                {
+                    Time = startTime + count * spacing + 1f,
+                    Wave = waveNum,
+                    Spec = CampaignCatalog.Enemies.Length - 1,
+                    Row = 2,
+                    Layer = Layer.Surface
+                });
             }
         }
 
         private void PlaceStartingTrash()
         {
+            int effLevel = Endless ? 8 : Level;
             AddWaste(0, Layer.Surface, 2, 3);
             AddWaste(1, Layer.Surface, 3, 2);
-            if (Level == 1) return;
+            if (effLevel == 1)
+            {
+                AddWaste(0, Layer.Surface, 1, 5);
+                return;
+            }
             AddWaste(2, Layer.Deep, 2, 2);
             AddWaste(3, Layer.Deep, 1, 4);
-            if (Level >= 3)
+            if (effLevel >= 3)
             {
                 AddWaste(4, Layer.Deep, 2, 4);
                 AddWaste(5, Layer.Surface, 0, 5);
             }
-            if (Level >= 4)
+            if (effLevel >= 4)
             {
                 AddWaste(6, Layer.Deep, 3, 3);
                 AddWaste(7, Layer.Surface, 2, 6);
             }
-            if (Level >= 5)
+            if (effLevel >= 5)
             {
                 AddWaste(8, Layer.Deep, 2, 5);
                 AddWaste(9, Layer.Surface, 4, 5);
             }
+            if (effLevel >= 6)
+            {
+                AddWaste(2, Layer.Deep, 4, 3);
+                AddWaste(0, Layer.Surface, 0, 4);
+            }
         }
 
-        private void AddWaste(int id, Layer layer, int row, int column)
+        private void AddWaste(int id, Layer layer, int row, int col)
         {
-            if (Trash[(int)layer, row, column] == null && Allies[(int)layer, row, column] == null)
-                Trash[(int)layer, row, column] = new Waste(id);
+            if (Trash[(int)layer, row, col] == null && Allies[(int)layer, row, col] == null)
+                Trash[(int)layer, row, col] = new Waste(id);
         }
 
-        public bool Plant(int id, Layer layer, int row, int column)
+        public bool CanPlant(int id, Layer layer, int row, int col, out string reason)
         {
-            if (Ended || Respawn > 0 || id < 0 || id >= CampaignCatalog.Allies.Length) return false;
+            reason = null;
+            if (Ended || Respawn > 0f || id < 0 || id >= CampaignCatalog.Allies.Length) return false;
             var spec = CampaignCatalog.Allies[id];
-            if (spec.Unlock > Level) return false;
-            if (!CampaignCatalog.Fits(spec.Habitat, layer)) return Refuse("Đồng minh này cần tầng còn lại.");
-            if (Allies[(int)layer, row, column] != null || Trash[(int)layer, row, column] != null)
-                return Refuse("Ô đã có đồng minh hoặc rác. F để dọn rác.");
-            if (Energy < spec.Cost) return Refuse("Chưa đủ năng lượng.");
-            Energy -= spec.Cost;
-            Allies[(int)layer, row, column] = new Ally(id, spec.Health);
-            Say("Đã đặt " + spec.Name + ".");
+            if (!Endless && spec.Unlock > Level) { reason = "Chưa mở khóa."; return false; }
+            if (CardCooldowns[id] > 0f) { reason = "Thẻ đang hồi chiêu."; return false; }
+            if (!CampaignCatalog.Fits(spec.Habitat, layer)) { reason = "Đồng minh này cần tầng còn lại!"; return false; }
+            if (Allies[(int)layer, row, col] != null || Trash[(int)layer, row, col] != null)
+            { reason = "Ô đã có vật thể. Dọn rác (F) trước."; return false; }
+            if (Energy < spec.Cost) { reason = $"Cần {spec.Cost} NL."; return false; }
             return true;
         }
 
-        public bool Collect(Layer layer, int row, int column)
+        public bool Plant(int id, Layer layer, int row, int col)
         {
-            if (Ended || Respawn > 0) return false;
+            if (!CanPlant(id, layer, row, col, out string reason))
+            {
+                if (!string.IsNullOrEmpty(reason)) Say(reason, 2.2f);
+                return false;
+            }
+            var spec = CampaignCatalog.Allies[id];
+            Energy -= spec.Cost;
+            float rechargeMult = Mathf.Max(0.45f, 1f - progress.UpgradeLevel(5) * 0.15f);
+            CardCooldowns[id] = spec.Recharge * rechargeMult;
+            Allies[(int)layer, row, col] = new Ally(id, spec.Health);
+
+            Vector2 px = CellToPixel(col, row);
+            OnSfx?.Invoke(SfxId.Plant);
+            OnBurst?.Invoke(layer, px, new Color(0.55f, 0.95f, 0.72f, 1f), 10);
+            OnFloatText?.Invoke(layer, px - new Vector2(0, 14), spec.Name, new Color(0.7f, 1f, 0.85f, 1f));
+            if (spec.Reach != Reach.Local) OnAchievement?.Invoke("cross_layer");
+            Say("Đã trồng " + spec.Name + "!", 2f);
+            return true;
+        }
+
+        public bool RemoveAlly(Layer layer, int row, int col)
+        {
+            if (Ended) return false;
             int side = (int)layer;
-            var waste = Trash[side, row, column];
+            var ally = Allies[side, row, col];
+            if (ally == null) return false;
+            var spec = CampaignCatalog.Allies[ally.Spec];
+            int refund = ally.Temporary > 0f ? 0 : spec.Cost / 2;
+            Allies[side, row, col] = null;
+            if (refund > 0) Energy += refund;
+            Vector2 px = CellToPixel(col, row);
+            OnSfx?.Invoke(SfxId.Click);
+            OnBurst?.Invoke(layer, px, new Color(0.85f, 0.9f, 0.95f, 1f), 7);
+            if (refund > 0) OnFloatText?.Invoke(layer, px, $"+{refund} NL", new Color(1f, 0.88f, 0.45f, 1f));
+            Say($"Đã tháo {spec.Name} (+{refund} NL).", 2f);
+            return true;
+        }
+
+        public bool Collect(Layer layer, int row, int col)
+        {
+            if (Ended || Respawn > 0f) return false;
+            int side = (int)layer;
+            var waste = Trash[side, row, col];
             if (waste == null) return Refuse("Ô này không có rác.");
             var spec = CampaignCatalog.Trash[waste.Spec];
-            Trash[side, row, column] = null;
-            int value = spec.Effect == TrashEffect.Float ? 1 : spec.Value;
+            Trash[side, row, col] = null;
+            int value = spec.Effect == TrashEffect.Float ? 15 : spec.Value;
             Energy += value;
-            if (spec.Effect == TrashEffect.Filament && Allies[side, row, column] == null)
+            CoinsEarned += 2;
+            Score += 20;
+            Vector2 px = CellToPixel(col, row);
+
+            if (spec.Effect == TrashEffect.Filament && Allies[side, row, col] == null)
             {
-                Allies[side, row, column] = new Ally(3, CampaignCatalog.Allies[3].Health);
-                Say("Đã cắt cước. Cá Vệt ở lại phòng thủ ô này.");
+                Allies[side, row, col] = new Ally(3, CampaignCatalog.Allies[3].Health);
+                FishRescued++;
+                CoinsEarned += 5;
+                Score += 60;
+                OnSfx?.Invoke(SfxId.RescueFish);
+                OnBurst?.Invoke(layer, px, new Color(0.4f, 0.95f, 1f, 1f), 14);
+                OnFloatText?.Invoke(layer, px - new Vector2(0, 12), "CỨU CÁ! +25", new Color(0.45f, 1f, 0.95f, 1f));
+                OnAchievement?.Invoke("first_rescue");
+                Say("Đã cắt dây cước! Cá Vệt gia nhập phòng tuyến!", 3.2f);
             }
-            else Say($"+{value} năng lượng từ {spec.Name}.");
+            else
+            {
+                OnSfx?.Invoke(SfxId.CollectOrb);
+                OnBurst?.Invoke(layer, px, new Color(1f, 0.85f, 0.45f, 1f), 8);
+                OnFloatText?.Invoke(layer, px, $"+{value} NL", new Color(1f, 0.88f, 0.45f, 1f));
+                Say($"Thu gom {spec.Name}: +{value} NL.", 2.2f);
+            }
             return true;
         }
 
-        public bool UseTrash(Layer layer, int row, int column)
+        public bool UseTrash(Layer layer, int row, int col)
         {
-            if (Ended || Respawn > 0) return false;
+            if (Ended || Respawn > 0f) return false;
             int side = (int)layer;
-            var waste = Trash[side, row, column];
-            if (waste == null) return Refuse("G cần rác ở ô hiện tại.");
+            var waste = Trash[side, row, col];
+            if (waste == null) return Refuse("Cần đứng trên ô rác để kích hoạt (G).");
             var spec = CampaignCatalog.Trash[waste.Spec];
             Layer opposite = CampaignCatalog.Opposite(layer);
             int other = (int)opposite;
+            Vector2 px = CellToPixel(col, row);
+
             switch (spec.Effect)
             {
                 case TrashEffect.Float:
-                    return PushFloat(layer, row, column, -1);
+                    return PushFloat(layer, row, col, -1);
                 case TrashEffect.Filament:
-                    return Collect(layer, row, column);
+                    return Collect(layer, row, col);
                 case TrashEffect.Ballast:
-                    if (!Free(opposite, row, column))
-                        return Refuse("Ô mặt nước bị chiếm. F để thu cục chì.");
-                    Allies[other, row, column] = new Ally(1, 9, 24);
+                    if (!Free(opposite, row, col))
+                        return Refuse("Ô mặt nước đang bị chiếm. Bấm F để thu.");
+                    Allies[other, row, col] = new Ally(1, 14, 28f);
+                    OnAchievement?.Invoke("cross_layer");
+                    OnFloatText?.Invoke(opposite, px, "PHAO CHẮN!", new Color(0.55f, 1f, 0.85f, 1f));
                     break;
                 case TrashEffect.Shell:
-                    Allies[side, row, column] = new Ally(1, 7, 22);
+                    Allies[side, row, col] = new Ally(1, 12, 26f);
+                    OnFloatText?.Invoke(layer, px, "KHIÊN VỎ!", new Color(1f, 0.86f, 0.5f, 1f));
                     break;
                 case TrashEffect.Capsule:
-                    if (!Free(opposite, row, column))
+                    if (!Free(opposite, row, col))
                         return Refuse("Ô tầng kia bị chiếm.");
-                    Trash[other, row, column] = waste;
+                    Trash[other, row, col] = waste;
+                    OnFloatText?.Invoke(layer, px, "ĐỔI TẦNG!", new Color(0.6f, 0.9f, 1f, 1f));
                     break;
                 case TrashEffect.Mirror:
                 case TrashEffect.Vent:
-                    if (waste.Active) return Refuse("Đang hoạt động. F để tháo.");
+                    if (waste.Active) return Refuse("Đã kích hoạt. Bấm F để tháo.");
                     waste.Active = true;
-                    Say(spec.Name + " đang nối ô giữa hai tầng.");
+                    OnSfx?.Invoke(SfxId.Plant);
+                    OnRing?.Invoke(layer, px, new Color(0.55f, 1f, 0.95f, 1f), 44f);
+                    OnFloatText?.Invoke(layer, px, "LIÊN TẦNG!", new Color(0.55f, 1f, 0.95f, 1f));
+                    OnAchievement?.Invoke("cross_layer");
+                    Say(spec.Name + " đã kích hoạt kết nối hai tầng!", 3f);
                     return true;
                 case TrashEffect.Battery:
-                    Shock(layer, row, column);
-                    Shock(opposite, row, column);
+                    Shock(layer, row, col, 6);
+                    Shock(opposite, row, col, 6);
+                    OnSfx?.Invoke(SfxId.Pulse);
+                    OnShake?.Invoke(0.22f, 5f);
+                    OnAchievement?.Invoke("cross_layer");
                     break;
                 case TrashEffect.Spill:
-                    HitNear(layer, row, column, 1.3f, 2, true);
+                    HitNear(layer, row, col, 1.4f, 4, true);
+                    OnSfx?.Invoke(SfxId.Pulse);
+                    OnBurst?.Invoke(layer, px, new Color(1f, 0.55f, 0.25f, 1f), 14);
                     break;
                 case TrashEffect.Loom:
                     if (waste.Active) return Refuse("Lưới đã giăng. F để tháo.");
                     waste.Active = true;
-                    waste.Cooldown = 18f;
-                    DrawEffect(opposite, row, column, Columns - 1, true);
-                    Say("Lưới giữ chậm cả hàng đối diện trong 18 giây.");
+                    waste.Cooldown = 20f;
+                    AddBeam(opposite, row, col, Columns - 1, new Color(0.5f, 0.95f, 0.85f, 1f), true);
+                    OnSfx?.Invoke(SfxId.Plant);
+                    OnAchievement?.Invoke("cross_layer");
+                    Say("Lưới Cuộn hãm chậm cả hàng đối diện trong 20s!", 3f);
                     return true;
             }
-            Trash[side, row, column] = null;
-            Say(spec.Name + " đã được sử dụng.");
+            Trash[side, row, col] = null;
+            OnSfx?.Invoke(SfxId.PushBottle);
+            OnBurst?.Invoke(layer, px, new Color(0.65f, 0.95f, 1f, 1f), 10);
+            Say("Đã kích hoạt " + spec.Name + "!", 2.5f);
             return true;
         }
 
-        public bool PushFloat(Layer layer, int row, int column, int direction)
+        public bool PushFloat(Layer layer, int row, int col, int direction)
         {
-            if (Ended || Respawn > 0 || direction == 0) return false;
+            if (Ended || Respawn > 0f || direction == 0) return false;
             int side = (int)layer;
-            var waste = Trash[side, row, column];
+            var waste = Trash[side, row, col];
             if (waste == null || CampaignCatalog.Trash[waste.Spec].Effect != TrashEffect.Float) return false;
 
-            if (column + direction < 0)
+            Vector2 px = CellToPixel(col, row);
+            if (col + direction < 0)
             {
-                Energy += CampaignCatalog.Trash[waste.Spec].Value * 2;
-                Trash[side, row, column] = null;
-                Say("Chai vào bến. +6 năng lượng.");
+                int bonus = 50 + progress.UpgradeLevel(4) * 15;
+                Energy += bonus;
+                BottlesDocked++;
+                CoinsEarned += 5;
+                Score += 50;
+                Trash[side, row, col] = null;
+                OnSfx?.Invoke(SfxId.Coin);
+                OnBurst?.Invoke(layer, px, new Color(1f, 0.9f, 0.4f, 1f), 14);
+                OnFloatText?.Invoke(layer, px, $"BẾN GOM! +{bonus} NL", new Color(1f, 0.92f, 0.42f, 1f));
+                if (BottlesDocked >= 3) OnAchievement?.Invoke("dock_master");
+                Say($"Chai Phao vào bến! +{bonus} NL & +5 Xu!", 3f);
                 return true;
             }
-            if (column + direction >= Columns || !Free(layer, row, column + direction)) return false;
-            Trash[side, row, column + direction] = waste;
-            Trash[side, row, column] = null;
-            Say("Đưa chai về mép trái để được thưởng đôi. F thu ngay.");
+
+            if (direction > 0)
+            {
+                Enemy bowled = null;
+                foreach (var e in Enemies)
+                {
+                    if (e.Health > 0 && e.Layer == layer && e.Row == row && e.X >= col - 0.1f && e.X <= col + 1.45f)
+                    {
+                        bowled = e;
+                        break;
+                    }
+                }
+                if (bowled != null)
+                {
+                    Trash[side, row, col] = null;
+                    Damage(bowled, 8, true);
+                    if (CampaignCatalog.Enemies[bowled.Spec].Trait != Trait.Anchor)
+                        bowled.X = Mathf.Min(8.7f, bowled.X + 1.35f);
+                    Energy += 25;
+                    Score += 45;
+                    OnSfx?.Invoke(SfxId.ArmorCrack);
+                    OnShake?.Invoke(0.18f, 4f);
+                    OnBurst?.Invoke(layer, CellToPixel(bowled.X, row), new Color(1f, 0.72f, 0.35f, 1f), 14);
+                    OnFloatText?.Invoke(layer, CellToPixel(bowled.X, row) - new Vector2(0, 14), "BOWLING! -8", new Color(1f, 0.75f, 0.3f, 1f));
+                    OnAchievement?.Invoke("bottle_bowler");
+                    Say("BOWLING RÁC! Chai Phao húc bay kẻ địch (+25 NL)!", 3f);
+                    return true;
+                }
+            }
+
+            int nextCol = col + direction;
+            if (nextCol >= Columns || !Free(layer, row, nextCol)) return false;
+            Trash[side, row, nextCol] = waste;
+            Trash[side, row, col] = null;
+            OnSfx?.Invoke(SfxId.PushBottle);
+            OnBurst?.Invoke(layer, CellToPixel(nextCol, row), new Color(0.65f, 0.95f, 1f, 1f), 5);
             return true;
         }
 
-        public bool RobotPulse(Layer layer, int row, float column)
+        public bool RobotPulse(Layer layer, int row, float col)
         {
-            if (Ended || Respawn > 0 || pulseCooldown > 0 || Energy <= 0) return false;
-            if (!HasNear(layer, row, column, 1.25f)) return Refuse("Cần địch ở gần robot để phát xung.");
-            Energy--;
-            pulseCooldown = 2.5f;
-            HitNear(layer, row, column, 1.25f, 4, true);
-            DrawEffect(layer, row, column - 1, column + 1, true);
-            Say("Xung Bio-Bot. Có thể tháo vỏ.");
+            if (Ended || Respawn > 0f || pulseCooldown > 0f) return false;
+            if (Energy < 15) return Refuse("Bio-Pulse cần 15 NL.");
+            Energy -= 15;
+            pulseCooldown = PulseCooldownMax;
+            int dmg = 5 + progress.UpgradeLevel(2) * 2;
+            HitNear(layer, row, col, 1.65f, dmg, true);
+            int c = Mathf.Clamp(Mathf.RoundToInt(col), 0, Columns - 1);
+            for (int x = Mathf.Max(0, c - 1); x <= Mathf.Min(Columns - 1, c + 1); x++)
+            {
+                var w = Trash[(int)layer, row, x];
+                if (w != null && CampaignCatalog.Trash[w.Spec].Effect == TrashEffect.Spill)
+                    Trash[(int)layer, row, x] = null;
+            }
+            Vector2 px = CellToPixel(col, row);
+            OnSfx?.Invoke(SfxId.Pulse);
+            OnShake?.Invoke(0.2f, 4.5f);
+            OnRing?.Invoke(layer, px, new Color(0.45f, 1f, 0.92f, 1f), 64f);
+            OnBurst?.Invoke(layer, px, new Color(0.55f, 1f, 0.95f, 1f), 14);
+            OnFloatText?.Invoke(layer, px - new Vector2(0, 18), "BIO-PULSE!", new Color(0.5f, 1f, 0.95f, 1f));
+            Say("Xung Bio-Bot! Phá giáp & đẩy lùi địch gần!", 2.5f);
             return true;
         }
 
-        private bool Free(Layer layer, int row, int column) =>
-            Trash[(int)layer, row, column] == null && Allies[(int)layer, row, column] == null;
-
-        private void Say(string message, float duration = 3f)
+        public bool CollectOrbAt(Layer layer, Vector2 pixelPos)
         {
-            Message = message;
-            Feedback = duration;
-        }
-
-        private bool Refuse(string message)
-        {
-            Say(message);
+            for (int i = Orbs.Count - 1; i >= 0; i--)
+            {
+                var orb = Orbs[i];
+                if (orb.Layer != layer) continue;
+                if (Vector2.Distance(orb.Pos, pixelPos) <= 26f)
+                {
+                    GrabOrb(i);
+                    return true;
+                }
+            }
             return false;
+        }
+
+        private void GrabOrb(int index)
+        {
+            var orb = Orbs[index];
+            int val = Mathf.RoundToInt(orb.Value);
+            Energy += val;
+            Score += 10;
+            OnSfx?.Invoke(SfxId.CollectOrb);
+            OnBurst?.Invoke(orb.Layer, orb.Pos, new Color(1f, 0.92f, 0.42f, 1f), 7);
+            OnFloatText?.Invoke(orb.Layer, orb.Pos, $"+{val}", new Color(1f, 0.94f, 0.45f, 1f));
+            Orbs.RemoveAt(index);
+        }
+
+        public void SpawnOrb(Layer layer, Vector2 startPixel, float targetY, int value)
+        {
+            Orbs.Add(new BioOrb
+            {
+                Layer = layer,
+                Pos = startPixel,
+                TargetY = targetY,
+                Value = value,
+                Life = 11f,
+                Bob = (float)rng.NextDouble() * 6.28f
+            });
         }
 
         public void Tick(float delta, Layer robotLayer, int robotRow, float robotColumn)
         {
             if (Ended) return;
             Time += delta;
-            Feedback -= delta;
-            invulnerable -= delta;
-            pulseCooldown -= delta;
+            Feedback = Mathf.Max(0f, Feedback - delta);
+            invulnerable = Mathf.Max(0f, invulnerable - delta);
+            pulseCooldown = Mathf.Max(0f, pulseCooldown - delta);
 
-            if (Respawn > 0)
+            for (int i = 0; i < CardCooldowns.Length; i++)
+                if (CardCooldowns[i] > 0f) CardCooldowns[i] = Mathf.Max(0f, CardCooldowns[i] - delta);
+
+            if (Respawn > 0f)
             {
-                Respawn = Mathf.Max(0, Respawn - delta);
-                if (Respawn == 0)
+                Respawn = Mathf.Max(0f, Respawn - delta);
+                if (Respawn == 0f)
                 {
-                    RobotHealth = MaxRobot;
-                    invulnerable = 2;
+                    RobotHealth = MaxRobotHealth;
+                    invulnerable = 2.2f;
                 }
             }
 
-            income -= delta;
-            if (income <= 0)
+            skyOrbTimer -= delta;
+            if (skyOrbTimer <= 0f)
             {
-                income += 3f;
-                Energy += 2;
+                skyOrbTimer = 6.2f;
+                float col = 1f + (float)rng.NextDouble() * 6.5f;
+                int row = rng.Next(Rows);
+                Vector2 target = CellToPixel(col, row);
+                SpawnOrb(robotLayer, new Vector2(target.x, 76f), target.y, 25);
+            }
+
+            trashDropTimer -= delta;
+            if (trashDropTimer <= 0f)
+            {
+                trashDropTimer = 17f;
+                int maxTrash = Endless ? CampaignCatalog.Trash.Length : Mathf.Min(CampaignCatalog.Trash.Length, Level * 2);
+                int pick = rng.Next(Mathf.Max(2, maxTrash));
+                var tSpec = CampaignCatalog.Trash[pick];
+                Layer tLayer = tSpec.Habitat == Habitat.Deep ? Layer.Deep :
+                    tSpec.Habitat == Habitat.Surface ? Layer.Surface : (rng.Next(2) == 0 ? Layer.Surface : Layer.Deep);
+                AddWaste(pick, tLayer, rng.Next(Rows), 2 + rng.Next(5));
+            }
+
+            Vector2 robotPx = CellToPixel(robotColumn, robotRow);
+            float magnetPx = MagnetRadius * 56f;
+            for (int i = Orbs.Count - 1; i >= 0; i--)
+            {
+                var orb = Orbs[i];
+                orb.Life -= delta;
+                orb.Bob += delta * 4.5f;
+                if (orb.Pos.y < orb.TargetY)
+                    orb.Pos.y = Mathf.Min(orb.TargetY, orb.Pos.y + 62f * delta);
+                if (Respawn <= 0f && orb.Layer == robotLayer)
+                {
+                    float dist = Vector2.Distance(orb.Pos, robotPx);
+                    if (dist < magnetPx)
+                    {
+                        orb.Pos = Vector2.MoveTowards(orb.Pos, robotPx, 240f * delta);
+                        if (dist < 24f)
+                        {
+                            GrabOrb(i);
+                            continue;
+                        }
+                    }
+                }
+                if (orb.Life <= 0f) Orbs.RemoveAt(i);
             }
 
             while (nextArrival < arrivals.Count && arrivals[nextArrival].Time <= Time)
@@ -320,288 +668,558 @@ namespace BioBot
                 if (arrival.Wave > Wave)
                 {
                     Wave = arrival.Wave;
-                    Energy += 4;
-                    Say($"Đợt {Wave}/{Rules.Waves}. Kiểm tra bản đồ nhỏ.");
+                    Energy += 25;
+                    OnSfx?.Invoke(SfxId.WaveHorn);
+                    string banner = (Rules.HasBoss && !Endless && Wave == Rules.Waves)
+                        ? "CẢNH BÁO ĐỎ: TÀU XẢ ĐỘC XUẤT HIỆN!"
+                        : $"ĐỢT {Wave}{(Endless ? "" : "/" + Rules.Waves)} ĐANG TRÀN TỚI!";
+                    OnWaveBanner?.Invoke(banner);
+                    if (Endless && Wave >= 5) OnAchievement?.Invoke("endless_5");
                 }
-                Enemies.Add(new Enemy(arrival.Spec, arrival.Layer, arrival.Row, 8.65f,
-                    CampaignCatalog.Enemies[arrival.Spec].Health));
+                var eSpec = CampaignCatalog.Enemies[arrival.Spec];
+                int hp = Endless ? Mathf.RoundToInt(eSpec.Health * (1f + (Wave - 1) * 0.14f)) : eSpec.Health;
+                Enemies.Add(new Enemy(arrival.Spec, arrival.Layer, arrival.Row, 8.75f, hp));
             }
 
-            for (int i = Effects.Count - 1; i >= 0; i--)
+            if (Endless && nextArrival >= arrivals.Count && Enemies.Count <= 2)
+                ScheduleEndlessWave(endlessWaveScheduled + 1, Time + 5f);
+
+            for (int i = Beams.Count - 1; i >= 0; i--)
             {
-                Effects[i].Left -= delta;
-                if (Effects[i].Left <= 0) Effects.RemoveAt(i);
+                Beams[i].Left -= delta;
+                if (Beams[i].Left <= 0f) Beams.RemoveAt(i);
+            }
+
+            for (int i = Turbines.Count - 1; i >= 0; i--)
+            {
+                var tw = Turbines[i];
+                tw.X += 7.5f * delta;
+                foreach (var e in Enemies)
+                {
+                    if (e.Health > 0 && e.Layer == tw.Layer && e.Row == tw.Row && Mathf.Abs(e.X - tw.X) < 0.7f)
+                    {
+                        var tr = CampaignCatalog.Enemies[e.Spec].Trait;
+                        Damage(e, tr == Trait.Boss ? 28 : 999, true);
+                    }
+                }
+                if (tw.X > Columns + 0.5f) Turbines.RemoveAt(i);
             }
 
             for (int side = 0; side < 2; side++)
                 for (int row = 0; row < Rows; row++)
-                    for (int column = 0; column < Columns; column++)
-                        TickTile((Layer)side, row, column, delta);
+                    for (int col = 0; col < Columns; col++)
+                        TickTile((Layer)side, row, col, delta);
+
+            TickProjectiles(delta);
 
             for (int i = Enemies.Count - 1; i >= 0; i--)
                 TickEnemy(i, delta, robotLayer, robotRow, robotColumn);
-            if (nextArrival == arrivals.Count && Enemies.Count == 0 && !Lost)
+
+            if (!Endless && nextArrival == arrivals.Count && Enemies.Count == 0 && !Lost)
+            {
                 Won = true;
+                CoinsEarned += Rules.CoinReward + Integrity * 3;
+                OnSfx?.Invoke(SfxId.Win);
+                if (Level == 1) OnAchievement?.Invoke("first_win");
+                if (Integrity == MaxIntegrity) OnAchievement?.Invoke("flawless");
+                if (Rules.HasBoss) OnAchievement?.Invoke("boss_slayer");
+            }
         }
 
-        private void TickTile(Layer layer, int row, int column, float delta)
+        private void TickTile(Layer layer, int row, int col, float delta)
         {
             int side = (int)layer;
-            var waste = Trash[side, row, column];
-            if (waste != null && waste.Active && CampaignCatalog.Trash[waste.Spec].Effect == TrashEffect.Loom)
+            var waste = Trash[side, row, col];
+            if (waste != null && waste.Active)
             {
-                waste.Cooldown -= delta;
-                foreach (var enemy in Enemies)
-                    if (enemy.Layer != layer && enemy.Row == row && enemy.X >= column - .5f)
-                        enemy.Slow = Mathf.Max(enemy.Slow, .7f);
-                if (waste.Cooldown <= 0) Trash[side, row, column] = null;
-            }
-            if (waste != null && waste.Active && CampaignCatalog.Trash[waste.Spec].Effect == TrashEffect.Vent)
-            {
-                waste.Cooldown -= delta;
-                if (waste.Cooldown <= 0)
+                var eff = CampaignCatalog.Trash[waste.Spec].Effect;
+                if (eff == TrashEffect.Loom)
                 {
-                    Shock(layer, row, column);
-                    Shock(CampaignCatalog.Opposite(layer), row, column);
-                    waste.Cooldown = 5;
+                    waste.Cooldown -= delta;
+                    foreach (var enemy in Enemies)
+                        if (enemy.Layer != layer && enemy.Row == row && enemy.X >= col - 0.5f)
+                            enemy.Slow = Mathf.Max(enemy.Slow, 0.8f);
+                    if (waste.Cooldown <= 0f) Trash[side, row, col] = null;
+                }
+                else if (eff == TrashEffect.Vent)
+                {
+                    waste.Cooldown -= delta;
+                    if (waste.Cooldown <= 0f)
+                    {
+                        Shock(layer, row, col, 4);
+                        Shock(CampaignCatalog.Opposite(layer), row, col, 4);
+                        waste.Cooldown = 4.8f;
+                    }
                 }
             }
-            var ally = Allies[side, row, column];
+
+            var ally = Allies[side, row, col];
             if (ally == null) return;
-            if (ally.Temporary > 0)
+            if (ally.PlantPop > 0f) ally.PlantPop = Mathf.Max(0f, ally.PlantPop - delta);
+            if (ally.Temporary > 0f)
             {
                 ally.Temporary -= delta;
-                if (ally.Temporary <= 0)
-                {
-                    Allies[side, row, column] = null;
-                    return;
-                }
+                if (ally.Temporary <= 0f) { Allies[side, row, col] = null; return; }
             }
-            ally.Jammed -= delta;
-            ally.Cooldown -= delta * (ally.Jammed > 0 ? .35f : 1f);
-            if (ally.Cooldown > 0) return;
+
+            ally.Jammed = Mathf.Max(0f, ally.Jammed - delta);
+            ally.Cooldown -= delta * (ally.Jammed > 0f ? 0.4f : 1f);
+            if (ally.Cooldown > 0f) return;
 
             var spec = CampaignCatalog.Allies[ally.Spec];
-            ally.Cooldown = spec.Ability switch
-            {
-                Ability.Income => 5f,
-                Ability.Repair => 2.6f,
-                Ability.Zap => .85f,
-                Ability.Pulse => 2.3f,
-                _ => 1.35f
-            };
+            if (spec.Ability == Ability.Guard) { ally.Cooldown = 2f; return; }
+
             if (spec.Ability == Ability.Income)
             {
-                Energy += spec.Power;
+                ally.Cooldown = 7.5f;
+                Vector2 p = CellToPixel(col, row);
+                SpawnOrb(layer, p - new Vector2(0, 12), p.y + 8f, spec.Power);
+                OnBurst?.Invoke(layer, p, new Color(1f, 0.94f, 0.45f, 1f), 5);
                 return;
             }
-            if (spec.Ability == Ability.Guard) return;
+
             if (spec.Ability == Ability.Clean)
             {
-                for (int x = Mathf.Max(0, column - 1); x <= Mathf.Min(Columns - 1, column + 1); x++)
+                for (int x = Mathf.Max(0, col - 1); x <= Mathf.Min(Columns - 1, col + 1); x++)
                 {
                     var nearby = Trash[side, row, x];
                     if (nearby != null && CampaignCatalog.Trash[nearby.Spec].Effect == TrashEffect.Spill)
+                    {
                         Trash[side, row, x] = null;
+                        OnBurst?.Invoke(layer, CellToPixel(x, row), new Color(0.55f, 1f, 0.95f, 1f), 8);
+                    }
                 }
             }
-            if (spec.Reach != Reach.Other) ApplyAlly(spec, layer, layer, row, column);
-            if (spec.Reach != Reach.Local) ApplyAlly(spec, layer, CampaignCatalog.Opposite(layer), row, column);
+
+            bool acted = false;
+            if (spec.Reach != Reach.Other) acted |= FireAlly(spec, layer, layer, row, col);
+            if (spec.Reach != Reach.Local) acted |= FireAlly(spec, layer, CampaignCatalog.Opposite(layer), row, col);
+
+            ally.Cooldown = acted
+                ? spec.Ability switch
+                {
+                    Ability.Repair => 2.8f,
+                    Ability.Zap => 0.95f,
+                    Ability.Pulse => 2.2f,
+                    _ => 1.35f
+                }
+                : 0.35f;
         }
 
-        private bool ActiveWaste(Layer layer, int row, int column, TrashEffect effect)
+        private bool ActiveWaste(Layer layer, int row, int col, TrashEffect effect)
         {
-            var waste = Trash[(int)layer, row, column];
+            var waste = Trash[(int)layer, row, col];
             return waste != null && waste.Active && CampaignCatalog.Trash[waste.Spec].Effect == effect;
         }
 
-        private void ApplyAlly(AllySpec spec, Layer from, Layer target, int row, int column)
+        private bool FireAlly(AllySpec spec, Layer from, Layer target, int row, int col)
         {
             if (from != target && spec.Ability == Ability.Reflect &&
-                !ActiveWaste(from, row, column, TrashEffect.Mirror) && !ActiveWaste(target, row, column, TrashEffect.Mirror))
-                return;
-            if (from != target && spec.Ability == Ability.Link && Allies[(int)target, row, column] == null)
-                return;
+                !ActiveWaste(from, row, col, TrashEffect.Mirror) && !ActiveWaste(target, row, col, TrashEffect.Mirror))
+                return false;
+            if (from != target && spec.Ability == Ability.Link && Allies[(int)target, row, col] == null)
+                return false;
+
             if (spec.Ability == Ability.Repair)
             {
-                var patient = Allies[(int)target, row, column];
-                if (patient != null && patient.Health < CampaignCatalog.Allies[patient.Spec].Health)
+                var patient = Allies[(int)target, row, col];
+                if (patient != null && patient.Health < patient.MaxHealth)
                 {
-                    patient.Health = Mathf.Min(patient.Health + spec.Power, CampaignCatalog.Allies[patient.Spec].Health);
-                    DrawEffect(target, row, column, column + .2f, true);
-                }
-                return;
-            }
-
-            int hits = spec.Ability == Ability.Pierce ? 2 : 1;
-            bool wide = spec.Ability == Ability.Pulse || (spec.Ability == Ability.Habitat && from == Layer.Deep);
-            bool pulse = spec.Ability is Ability.Pulse or Ability.Zap or Ability.Echo;
-            int power = spec.Power;
-            if (spec.Ability == Ability.Echo && (ActiveWaste(from, row, column, TrashEffect.Vent) ||
-                ActiveWaste(target, row, column, TrashEffect.Vent)))
-                power += 3;
-            var struck = new HashSet<Enemy>();
-            for (int n = 0; n < (wide ? Enemies.Count : hits); n++)
-            {
-                var enemy = FirstEnemy(target, row, column, struck);
-                if (enemy == null) break;
-                struck.Add(enemy);
-                if (spec.Ability == Ability.Pull && CampaignCatalog.Enemies[enemy.Spec].Trait != Trait.Anchor)
-                    enemy.X = Mathf.Min(8.8f, enemy.X + .4f);
-                if (spec.Ability == Ability.Slow || (spec.Ability == Ability.Habitat && from == Layer.Deep))
-                    enemy.Slow = Mathf.Max(enemy.Slow, spec.Power * .7f);
-                else
-                    Damage(enemy, power, pulse);
-                DrawEffect(target, row, column, enemy.X, pulse || spec.Ability == Ability.Slow);
-            }
-        }
-
-        private Enemy FirstEnemy(Layer layer, int row, float column, HashSet<Enemy> struck)
-        {
-            Enemy first = null;
-            foreach (var enemy in Enemies)
-            {
-                if (enemy.Health <= 0 || enemy.Layer != layer || enemy.Row != row || enemy.X < column - .25f) continue;
-                if (struck.Contains(enemy)) continue;
-                if (first == null || enemy.X < first.X) first = enemy;
-            }
-            return first;
-        }
-
-        private bool HasNear(Layer layer, int row, float column, float distance)
-        {
-            foreach (var enemy in Enemies)
-                if (enemy.Health > 0 && enemy.Layer == layer && enemy.Row == row && Mathf.Abs(enemy.X - column) <= distance)
+                    patient.Health = Mathf.Min(patient.MaxHealth, patient.Health + spec.Power);
+                    Vector2 px = CellToPixel(col, row);
+                    OnBurst?.Invoke(target, px, new Color(0.45f, 1f, 0.72f, 1f), 7);
+                    OnFloatText?.Invoke(target, px - new Vector2(0, 10), $"+{spec.Power} HP", new Color(0.45f, 1f, 0.72f, 1f));
                     return true;
-            return false;
+                }
+                return false;
+            }
+
+            if (!HasEnemyInLane(target, row, col - 0.3f)) return false;
+
+            int power = spec.Power;
+            if (spec.Ability == Ability.Echo && (ActiveWaste(from, row, col, TrashEffect.Vent) ||
+                ActiveWaste(target, row, col, TrashEffect.Vent)))
+                power += 4;
+
+            if (spec.Ability == Ability.Pulse || (spec.Ability == Ability.Habitat && from == Layer.Deep))
+            {
+                bool slowOnly = spec.Ability == Ability.Habitat;
+                foreach (var e in Enemies)
+                {
+                    if (e.Health <= 0 || e.Layer != target || e.Row != row || e.X < col - 0.3f) continue;
+                    if (slowOnly) e.Slow = Mathf.Max(e.Slow, 3.0f);
+                    else Damage(e, power, true);
+                }
+                Color c = slowOnly ? new Color(0.55f, 0.9f, 1f, 1f) : new Color(0.5f, 0.85f, 1f, 1f);
+                AddBeam(target, row, col, Columns - 0.5f, c, true);
+                OnSfx?.Invoke(SfxId.Shoot);
+                return true;
+            }
+
+            ProjectileKind kind = spec.Ability switch
+            {
+                Ability.Zap => ProjectileKind.Zap,
+                Ability.Pierce => ProjectileKind.Spear,
+                Ability.Pull => ProjectileKind.Push,
+                Ability.Slow => ProjectileKind.Slow,
+                Ability.Echo => ProjectileKind.Geyser,
+                _ => target == Layer.Deep ? ProjectileKind.Bubble : ProjectileKind.Seed
+            };
+
+            Projectiles.Add(new Projectile
+            {
+                Layer = target,
+                Row = row,
+                X = col + 0.3f,
+                Speed = kind == ProjectileKind.Zap ? 7.4f : kind == ProjectileKind.Spear ? 6.6f : 5.4f,
+                Damage = spec.Ability == Ability.Slow ? 1 : power,
+                PierceLeft = spec.Ability == Ability.Pierce ? 2 : 1,
+                Kind = kind,
+                Pulse = spec.Ability is Ability.Zap or Ability.Echo or Ability.Reflect,
+                Slow = spec.Ability == Ability.Slow,
+                Push = spec.Ability == Ability.Pull
+            });
+
+            if (from != target)
+                OnRing?.Invoke(target, CellToPixel(col, row), new Color(0.5f, 0.95f, 1f, 0.9f), 26f);
+            OnSfx?.Invoke(SfxId.Shoot);
+            return true;
         }
 
-        private void HitNear(Layer layer, int row, float column, float range, int power, bool pulse)
+        private void TickProjectiles(float delta)
         {
-            foreach (var enemy in Enemies)
-                if (enemy.Health > 0 && enemy.Layer == layer && enemy.Row == row && Mathf.Abs(enemy.X - column) <= range)
-                    Damage(enemy, power, pulse);
+            for (int i = Projectiles.Count - 1; i >= 0; i--)
+            {
+                var p = Projectiles[i];
+                p.X += p.Speed * delta;
+                if (p.X > Columns + 0.3f) { Projectiles.RemoveAt(i); continue; }
+
+                bool consumed = false;
+                for (int eIdx = 0; eIdx < Enemies.Count; eIdx++)
+                {
+                    var e = Enemies[eIdx];
+                    if (e.Health <= 0 || e.Layer != p.Layer || e.Row != p.Row || p.Hit.Contains(e)) continue;
+                    if (Mathf.Abs(e.X - p.X) <= 0.42f)
+                    {
+                        p.Hit.Add(e);
+                        Damage(e, p.Damage, p.Pulse);
+                        if (p.Slow) e.Slow = Mathf.Max(e.Slow, 2.8f);
+                        if (p.Push && CampaignCatalog.Enemies[e.Spec].Trait != Trait.Anchor &&
+                            CampaignCatalog.Enemies[e.Spec].Trait != Trait.Boss)
+                            e.X = Mathf.Min(8.8f, e.X + 0.55f);
+
+                        Vector2 hitPx = CellToPixel(e.X, e.Row);
+                        Color burstCol = p.Kind == ProjectileKind.Zap ? new Color(0.55f, 0.9f, 1f, 1f) :
+                            p.Slow ? new Color(0.6f, 0.95f, 1f, 1f) : new Color(0.7f, 1f, 0.72f, 1f);
+                        OnBurst?.Invoke(p.Layer, hitPx, burstCol, 5);
+                        OnSfx?.Invoke(SfxId.Hit);
+
+                        p.PierceLeft--;
+                        if (p.PierceLeft <= 0) { consumed = true; break; }
+                    }
+                }
+                if (consumed) Projectiles.RemoveAt(i);
+            }
         }
 
-        private void Shock(Layer layer, int row, int column)
-        {
-            HitNear(layer, row, column, 1.45f, 4, true);
-            DrawEffect(layer, row, Mathf.Max(0, column - 1), Mathf.Min(8, column + 1), true);
-        }
-
-        private void DrawEffect(Layer layer, int row, float from, float to, bool pulse) =>
-            Effects.Add(new Effect { Layer = layer, Row = row, From = from, To = to, Left = .20f, Pulse = pulse });
-
-        private static void Damage(Enemy enemy, int amount, bool pulse)
+        private void Damage(Enemy enemy, int amount, bool pulse)
         {
             var trait = CampaignCatalog.Enemies[enemy.Spec].Trait;
             if (trait == Trait.Shell && !enemy.Broken && !enemy.Small)
             {
-                if (pulse) enemy.Broken = true;
+                if (pulse)
+                {
+                    enemy.Broken = true;
+                    OnSfx?.Invoke(SfxId.ArmorCrack);
+                    OnFloatText?.Invoke(enemy.Layer, CellToPixel(enemy.X, enemy.Row) - new Vector2(0, 16),
+                        "VỠ GIÁP!", new Color(1f, 0.85f, 0.35f, 1f));
+                    OnAchievement?.Invoke("armor_breaker");
+                }
                 else amount = Mathf.Max(1, amount - 2);
             }
-            if (!pulse && !enemy.Small && (trait == Trait.Burrow || trait == Trait.Filter))
+            if (!pulse && !enemy.Small && (trait == Trait.Burrow || trait == Trait.Filter || trait == Trait.Phase))
                 amount = Mathf.Max(1, amount - 1);
+
             enemy.Health -= amount;
-            enemy.Flash = .14f;
+            enemy.Flash = 0.14f;
         }
 
-        private void TickEnemy(int index, float delta, Layer heroLayer, int heroRow, float heroColumn)
+        private void TickEnemy(int index, float delta, Layer heroLayer, int heroRow, float heroCol)
         {
             var enemy = Enemies[index];
             var spec = CampaignCatalog.Enemies[enemy.Spec];
-            int column = Mathf.Clamp(Mathf.RoundToInt(enemy.X), 0, Columns - 1);
+            int col = Mathf.Clamp(Mathf.RoundToInt(enemy.X), 0, Columns - 1);
+
             if (enemy.Health <= 0)
             {
+                Vector2 px = CellToPixel(enemy.X, enemy.Row);
                 Enemies.RemoveAt(index);
-                Energy++;
-                if (spec.Trait == Trait.Spill) AddWaste(7, enemy.Layer, enemy.Row, column);
+                Kills++;
+                Score += spec.Bounty * 5;
+                CoinsEarned += spec.Trait == Trait.Boss ? 50 : (rng.Next(3) == 0 ? 2 : 1);
+                OnBurst?.Invoke(enemy.Layer, px, new Color(1f, 0.65f, 0.45f, 1f), spec.Trait == Trait.Boss ? 28 : 10);
+                if (rng.Next(100) < (spec.Trait == Trait.Boss ? 100 : 38))
+                    SpawnOrb(enemy.Layer, px - new Vector2(0, 8), px.y + 4, spec.Trait == Trait.Boss ? 50 : 15);
+                if (spec.Trait == Trait.Spill) AddWaste(7, enemy.Layer, enemy.Row, col);
                 if (spec.Trait == Trait.Split && !enemy.Small)
-                    Enemies.Add(new Enemy(enemy.Spec, enemy.Layer, enemy.Row, enemy.X, 4, true));
+                {
+                    Enemies.Add(new Enemy(enemy.Spec, enemy.Layer, enemy.Row, enemy.X + 0.15f, 5, true));
+                    Enemies.Add(new Enemy(enemy.Spec, enemy.Layer, enemy.Row, enemy.X - 0.15f, 5, true));
+                }
                 return;
             }
 
-            enemy.Attack -= delta;
-            enemy.Slow -= delta;
-            enemy.Flash -= delta;
+            enemy.Attack = Mathf.Max(0f, enemy.Attack - delta);
+            enemy.Slow = Mathf.Max(0f, enemy.Slow - delta);
+            enemy.Flash = Mathf.Max(0f, enemy.Flash - delta);
             enemy.Recovery += delta;
-            if (spec.Trait == Trait.Filter && enemy.Recovery >= 5)
+
+            if (spec.Trait == Trait.Filter && enemy.Recovery >= 4.5f)
             {
-                enemy.Health = Mathf.Min(enemy.MaxHealth, enemy.Health + 1);
-                enemy.Recovery = 0;
+                enemy.Health = Mathf.Min(enemy.MaxHealth, enemy.Health + 2);
+                enemy.Recovery = 0f;
+            }
+
+            if (spec.Trait == Trait.Boss)
+            {
+                enemy.BossTimer -= delta;
+                if (enemy.BossTimer <= 0f)
+                {
+                    enemy.BossTimer = 7.5f;
+                    enemy.Layer = CampaignCatalog.Opposite(enemy.Layer);
+                    enemy.Row = rng.Next(Rows);
+                    OnRing?.Invoke(enemy.Layer, CellToPixel(enemy.X, enemy.Row), new Color(1f, 0.35f, 0.35f, 1f), 58f);
+                    OnShake?.Invoke(0.25f, 5f);
+                    int escort = rng.Next(4);
+                    Enemies.Add(new Enemy(escort, enemy.Layer, rng.Next(Rows), Mathf.Min(8.5f, enemy.X + 0.4f),
+                        CampaignCatalog.Enemies[escort].Health));
+                    AddWaste(7, Layer.Surface, enemy.Row, Mathf.Clamp(col, 1, 7));
+                    Say("Tàu Xả Độc đổi tầng và thả viện binh!", 2.5f);
+                }
             }
 
             if (spec.Trait == Trait.Ferry && enemy.X < 4.7f && !enemy.Shifted)
             {
                 enemy.Shifted = true;
                 enemy.Layer = CampaignCatalog.Opposite(enemy.Layer);
-                DrawEffect(enemy.Layer, enemy.Row, enemy.X - .25f, enemy.X + .25f, true);
+                OnRing?.Invoke(enemy.Layer, CellToPixel(enemy.X, enemy.Row), new Color(0.55f, 0.9f, 1f, 1f), 32f);
             }
 
             int side = (int)enemy.Layer;
-            var ally = Allies[side, enemy.Row, column];
+            var ally = Allies[side, enemy.Row, col];
             if (spec.Trait == Trait.Drift && !enemy.Shifted && ally != null)
             {
-                int adjacent = enemy.Row == Rows - 1 ? enemy.Row - 1 : enemy.Row + 1;
-                if (Allies[side, adjacent, column] == null)
+                int adj = enemy.Row == Rows - 1 ? enemy.Row - 1 : enemy.Row + 1;
+                if (Allies[side, adj, col] == null)
                 {
-                    enemy.Row = adjacent;
+                    enemy.Row = adj;
                     enemy.Shifted = true;
                     ally = null;
                 }
             }
-            if (spec.Trait == Trait.Jam)
+
+            if (spec.Trait == Trait.Jam || spec.Trait == Trait.Phase)
             {
-                var opposite = Allies[(int)CampaignCatalog.Opposite(enemy.Layer), enemy.Row, column];
-                if (opposite != null) opposite.Jammed = 1.2f;
+                var opp = Allies[(int)CampaignCatalog.Opposite(enemy.Layer), enemy.Row, col];
+                if (opp != null) opp.Jammed = 1.4f;
             }
 
-            if (Respawn <= 0 && invulnerable <= 0 && enemy.Layer == heroLayer &&
-                enemy.Row == heroRow && Mathf.Abs(enemy.X - heroColumn) < .32f)
+            if (Respawn <= 0f && invulnerable <= 0f && enemy.Layer == heroLayer &&
+                enemy.Row == heroRow && Mathf.Abs(enemy.X - heroCol) < 0.36f)
             {
                 RobotHealth--;
-                invulnerable = 1.5f;
+                invulnerable = 1.6f;
+                OnShake?.Invoke(0.16f, 4f);
+                OnSfx?.Invoke(SfxId.Hit);
+                OnFloatText?.Invoke(heroLayer, CellToPixel(heroCol, heroRow) - new Vector2(0, 14), "-1 HP", new Color(1f, 0.45f, 0.45f, 1f));
                 if (RobotHealth <= 0)
                 {
-                    Respawn = 4;
-                    Say("Bio-Bot đang hồi phục. Hai tầng vẫn tiếp tục.", 4);
+                    Respawn = 4f;
+                    Say("Bio-Bot đang hồi phục tại bến! Hai tầng vẫn tiếp tục.", 4f);
                 }
             }
 
-            if (ally != null && Mathf.Abs(enemy.X - column) < .48f)
+            if (ally != null && Mathf.Abs(enemy.X - col) < 0.48f)
             {
-                if (enemy.Attack <= 0)
+                if (enemy.Attack <= 0f)
                 {
-                    enemy.Attack = .95f;
-                    ally.Health -= spec.Trait == Trait.Ram ? 3 : 1;
-                    var defense = CampaignCatalog.Allies[ally.Spec];
-                    if (defense.Ability == Ability.Guard) Damage(enemy, defense.Power, false);
-                    if (ally.Health <= 0) Allies[side, enemy.Row, column] = null;
+                    enemy.Attack = 0.95f;
+                    int bite = spec.Trait == Trait.Boss ? 5 : spec.Trait == Trait.Ram ? 3 : 1;
+                    ally.Health -= bite;
+                    var def = CampaignCatalog.Allies[ally.Spec];
+                    if (def.Ability == Ability.Guard) Damage(enemy, def.Power, false);
+                    if (ally.Health <= 0)
+                    {
+                        Allies[side, enemy.Row, col] = null;
+                        OnBurst?.Invoke(enemy.Layer, CellToPixel(col, enemy.Row), new Color(0.8f, 0.9f, 0.7f, 1f), 8);
+                    }
                 }
                 return;
             }
 
-            float speed = spec.Speed * (enemy.Slow > 0 ? .46f : 1f) * (enemy.Small ? 1.55f : 1f);
-            var waste = Trash[side, enemy.Row, column];
+            float speed = spec.Speed * (enemy.Slow > 0f ? 0.45f : 1f) * (enemy.Small ? 1.5f : 1f);
+            var waste = Trash[side, enemy.Row, col];
             if (spec.Trait == Trait.Skim && waste != null && CampaignCatalog.Trash[waste.Spec].Effect == TrashEffect.Spill)
-                speed *= 1.9f;
+                speed *= 1.85f;
             foreach (var peer in Enemies)
             {
                 if (peer == enemy || peer.Layer != enemy.Layer || peer.Health <= 0) continue;
                 bool school = spec.Trait == Trait.School && peer.Spec == enemy.Spec && peer.Row == enemy.Row;
                 if (school || CampaignCatalog.Enemies[peer.Spec].Trait == Trait.Anchor)
                 {
-                    speed *= 1.27f;
+                    speed *= 1.25f;
                     break;
                 }
             }
+
             enemy.X -= speed * delta;
-            if (enemy.X < -.55f)
+            if (enemy.X < -0.25f)
             {
-                Enemies.RemoveAt(index);
-                Integrity = Mathf.Max(0, Integrity - (spec.Trait == Trait.Anchor ? 2 : 1));
-                Say("Rác đã lọt qua cửa đê.");
+                if (TurbineReady[side, enemy.Row])
+                {
+                    TurbineReady[side, enemy.Row] = false;
+                    Turbines.Add(new TurbineWave { Layer = enemy.Layer, Row = enemy.Row, X = -0.2f });
+                    OnSfx?.Invoke(SfxId.Turbine);
+                    OnShake?.Invoke(0.32f, 6f);
+                    OnFloatText?.Invoke(enemy.Layer, CellToPixel(0.5f, enemy.Row), "TUABIN XẢ LŨ!", new Color(0.45f, 0.95f, 1f, 1f));
+                    Say("Tuabin Cửa Đê kích hoạt! Quét sạch hàng!", 3f);
+                    return;
+                }
+                if (enemy.X < -0.58f)
+                {
+                    Enemies.RemoveAt(index);
+                    int loss = spec.Trait == Trait.Boss ? 5 : spec.Trait == Trait.Anchor ? 2 : 1;
+                    Integrity = Mathf.Max(0, Integrity - loss);
+                    OnShake?.Invoke(0.28f, 6f);
+                    OnSfx?.Invoke(SfxId.Lose);
+                    Say("Cảnh báo! Rác đã lọt qua Cửa Đê!", 3f);
+                }
             }
+        }
+
+        private bool HasEnemyInLane(Layer layer, int row, float minCol)
+        {
+            for (int i = 0; i < Enemies.Count; i++)
+            {
+                var e = Enemies[i];
+                if (e.Health > 0 && e.Layer == layer && e.Row == row && e.X >= minCol)
+                    return true;
+            }
+            return false;
+        }
+
+        private void HitNear(Layer layer, int row, float col, float range, int power, bool pulse)
+        {
+            foreach (var e in Enemies)
+                if (e.Health > 0 && e.Layer == layer && e.Row == row && Mathf.Abs(e.X - col) <= range)
+                    Damage(e, power, pulse);
+        }
+
+        private void Shock(Layer layer, int row, int col, int power)
+        {
+            HitNear(layer, row, col, 1.55f, power, true);
+            AddBeam(layer, row, Mathf.Max(0, col - 1), Mathf.Min(8, col + 1), new Color(0.55f, 0.95f, 1f, 1f), true);
+            OnRing?.Invoke(layer, CellToPixel(col, row), new Color(0.55f, 0.95f, 1f, 1f), 46f);
+        }
+
+        private void AddBeam(Layer layer, int row, float from, float to, Color color, bool thick) =>
+            Beams.Add(new BeamEffect { Layer = layer, Row = row, From = from, To = to, Left = 0.24f, Color = color, Thick = thick });
+
+        private bool Free(Layer layer, int row, int col) =>
+            Trash[(int)layer, row, col] == null && Allies[(int)layer, row, col] == null;
+
+        private void Say(string msg, float dur = 2.8f) { Message = msg; Feedback = dur; }
+        private bool Refuse(string msg) { Say(msg, 2.2f); return false; }
+
+        public int ComputeStars()
+        {
+            if (!Won) return 0;
+            if (Integrity >= MaxIntegrity) return 3;
+            if (Integrity >= MaxIntegrity - 3) return 2;
+            return 1;
+        }
+
+        public void StepAutoPilot(TwoLayerBoard board, float delta)
+        {
+            if (Ended || Respawn > 0f || board.IsTransitioning) return;
+            Layer curLayer = board.IsUnderwater ? Layer.Deep : Layer.Surface;
+            Vector2Int cell = board.RobotCell;
+
+            if (Orbs.Count > 0)
+            {
+                BioOrb nearest = null;
+                float best = 9999f;
+                Vector2 rPx = CellToPixel(board.RobotColumn, cell.y);
+                foreach (var o in Orbs)
+                {
+                    if (o.Layer == curLayer)
+                    {
+                        float d = Vector2.Distance(o.Pos, rPx);
+                        if (d < best) { best = d; nearest = o; }
+                    }
+                }
+                if (nearest != null)
+                {
+                    float col = Mathf.Clamp((nearest.Pos.x - 58f) / 60f, 0f, 8f);
+                    float row = Mathf.Clamp((nearest.Pos.y - 109f) / 54f, 0f, 4f);
+                    board.MoveRobotToward(CellToLocalWorld(col, row), RobotSpeedBonus);
+                }
+            }
+
+            var w = Trash[(int)curLayer, cell.y, cell.x];
+            if (w != null)
+            {
+                var eff = CampaignCatalog.Trash[w.Spec].Effect;
+                if (eff == TrashEffect.Filament) Collect(curLayer, cell.y, cell.x);
+                else if (eff == TrashEffect.Float) PushFloat(curLayer, cell.y, cell.x, -1);
+                else if (!w.Active && (eff is TrashEffect.Mirror or TrashEffect.Vent or TrashEffect.Loom)) UseTrash(curLayer, cell.y, cell.x);
+                else Collect(curLayer, cell.y, cell.x);
+            }
+
+            int incomeCount = 0;
+            for (int r = 0; r < Rows; r++)
+                if (Allies[(int)curLayer, r, 0] != null && Allies[(int)curLayer, r, 0].Spec == 2) incomeCount++;
+
+            if (incomeCount < 3 && Energy >= 50 && CardCooldowns[2] <= 0f)
+            {
+                for (int r = 0; r < Rows; r++)
+                    if (Free(curLayer, r, 0)) { Plant(2, curLayer, r, 0); return; }
+            }
+
+            Enemy urgent = null;
+            foreach (var e in Enemies)
+                if (urgent == null || e.X < urgent.X) urgent = e;
+
+            if (urgent != null)
+            {
+                if (urgent.Layer != curLayer && urgent.X < 5.5f)
+                {
+                    board.RequestDive(urgent.Layer == Layer.Deep);
+                    return;
+                }
+                if (urgent.Layer == curLayer)
+                {
+                    int defender = curLayer == Layer.Surface ? 0 : 3;
+                    if (Energy >= 125 && (Endless || Level >= 3) && CardCooldowns[7] <= 0f) defender = 7;
+                    for (int c = 1; c <= 3; c++)
+                    {
+                        if (Free(curLayer, urgent.Row, c) && CanPlant(defender, curLayer, urgent.Row, c, out _))
+                        {
+                            Plant(defender, curLayer, urgent.Row, c);
+                            break;
+                        }
+                    }
+                    if (urgent.X < 2.2f && pulseCooldown <= 0f && Energy >= 15)
+                        RobotPulse(curLayer, cell.y, board.RobotColumn);
+                }
+            }
+        }
+
+        private static Vector2 CellToLocalWorld(float col, float row)
+        {
+            float x = col * (30f / 24f) - 163f / 24f;
+            float y = 67f / 24f - (row + 0.5f) * (27f / 24f);
+            return new Vector2(x, y);
         }
     }
 }
