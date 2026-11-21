@@ -1,0 +1,37 @@
+[
+  {
+    "start": 0,
+    "end": 4.2,
+    "tag": "1/5",
+    "title": "MÀN CHƠI 2D & HOẠT ẢNH IDLE",
+    "subtitle": "Bio-Bot phát hoạt ảnh Idle khi đứng yên. Quan sát Hierarchy và Game View trong Unity Editor."
+  },
+  {
+    "start": 4.2,
+    "end": 11.7,
+    "tag": "2/5",
+    "title": "DI CHUYỂN BỐN HƯỚNG & HOẠT ẢNH MOVE",
+    "subtitle": "Dùng WASD hoặc các phím mũi tên để di chuyển bốn hướng. Bio-Bot chuyển sang hoạt ảnh Move."
+  },
+  {
+    "start": 11.7,
+    "end": 13.8,
+    "tag": "3/5",
+    "title": "HAI HOẠT ẢNH MÔI TRƯỜNG",
+    "subtitle": "Quan sát rong biển đung đưa và gợn sóng lan trên mặt nước."
+  },
+  {
+    "start": 13.8,
+    "end": 18,
+    "tag": "4/5",
+    "title": "VẬT LÝ 2D & VA CHẠM",
+    "subtitle": "Rigidbody2D và Collider2D giúp Bio-Bot dừng ở đê chắn sóng. Xem cú đẩy chai nổi ở giây thứ 5."
+  },
+  {
+    "start": 18,
+    "end": 30.04,
+    "tag": "5/5",
+    "title": "ĐIỂM CỘNG · CHUYỂN GIỮA HAI TẦNG",
+    "subtitle": "Nhấn Q để lặn xuống tầng đáy, nhấn E để nổi lên mặt nước."
+  }
+]
