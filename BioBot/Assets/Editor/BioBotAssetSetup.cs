@@ -13,7 +13,11 @@ namespace BioBot
             var importer = (TextureImporter)assetImporter;
             importer.textureType = TextureImporterType.Default;
             importer.npotScale = TextureImporterNPOTScale.None;
-            importer.filterMode = FilterMode.Point;
+            bool painted = assetPath.EndsWith("/EstuaryDusk.png") || assetPath.EndsWith("/PatrolSubmersible.png")
+                || assetPath.EndsWith("/StarterGuardians.png") || assetPath.EndsWith("/CoastalHostiles.png");
+            importer.filterMode = painted || assetPath.EndsWith("/TidalSilhouettes.png")
+                ? FilterMode.Bilinear : FilterMode.Point;
+            if (assetPath.EndsWith("/TidalRoster.png")) importer.isReadable = true;
             importer.mipmapEnabled = false;
             importer.alphaIsTransparency = true;
             importer.textureCompression = TextureImporterCompression.Uncompressed;

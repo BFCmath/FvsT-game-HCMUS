@@ -28,8 +28,6 @@ namespace BioBot
 
         public float ShakeTime { get; private set; }
         public float ShakeIntensity { get; private set; }
-        public string WaveBannerText { get; private set; }
-        public float WaveBannerTime { get; private set; }
         public string ToastTitle { get; private set; }
         public string ToastSub { get; private set; }
         public float ToastTime { get; private set; }
@@ -39,19 +37,14 @@ namespace BioBot
             Particles.Clear();
             Texts.Clear();
             ShakeTime = 0f;
-            WaveBannerTime = 0f;
+            ShakeIntensity = 0f;
         }
 
         public void TriggerShake(float duration, float intensity = 4f)
         {
+            if (ShakeTime <= 0f) ShakeIntensity = 0f;
             ShakeTime = Mathf.Max(ShakeTime, duration);
             ShakeIntensity = Mathf.Max(ShakeIntensity, intensity);
-        }
-
-        public void ShowWaveBanner(string text, float duration = 2.6f)
-        {
-            WaveBannerText = text;
-            WaveBannerTime = duration;
         }
 
         public void ShowToast(string title, string subtitle, float duration = 3.6f)
@@ -108,11 +101,12 @@ namespace BioBot
             });
         }
 
-        public void Tick(float delta)
+        public void Tick(float delta, bool advanceCombat)
         {
-            if (ShakeTime > 0f) ShakeTime = Mathf.Max(0f, ShakeTime - delta);
-            if (WaveBannerTime > 0f) WaveBannerTime = Mathf.Max(0f, WaveBannerTime - delta);
             if (ToastTime > 0f) ToastTime = Mathf.Max(0f, ToastTime - delta);
+            if (!advanceCombat) return;
+
+            if (ShakeTime > 0f) ShakeTime = Mathf.Max(0f, ShakeTime - delta);
 
             for (int i = Particles.Count - 1; i >= 0; i--)
             {

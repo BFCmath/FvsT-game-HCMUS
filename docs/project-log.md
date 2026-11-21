@@ -53,3 +53,30 @@
 - Vẽ 42 sprite thực thể, mỗi sprite có bốn frame. Bổ sung chuyển động khi nhận đòn, tia xung và ngắm theo hàng. Toàn bộ danh sách có trong Sổ sinh thái trong game.
 - Mô phỏng tuần tự thắng năm màn, kiểm tra trường hợp thua không phòng thủ, đủ 12 loại địch xuất hiện, đủ 10 cách xử lý rác và các tương tác qua tầng. Chạy kiểm tra Play Mode riêng cho phím điều khiển và đặt đồng minh đúng môi trường.
 - Xác nhận mở scene campaign và hiển thị menu trong Unity Editor. Kiểm tra Play Mode trên hồ sơ thử riêng xác nhận màn hai bị khóa lúc đầu, thắng màn một lưu tiến độ và Enter chuyển được sang màn hai.
+
+## 21/11/2026 — Rà soát và hoàn thiện Bio-Bot
+
+- Đổi giao diện chiến dịch sang phong cách cửa sông công nghiệp. Bổ sung cảnh hoàng hôn, bộ sprite sơn kỹ thuật số cho Bio-Bot, bốn đồng minh đầu và sáu đối thủ, cùng chuyển động chuyển tầng, luồng phản lực và tác động mặt nước.
+- Đồng nhất Q để lặn và E để nổi. Gộp chỉ dẫn vào màn xem nhiệm vụ, khóa thao tác với giao diện sau cửa sổ đang mở, giữ vị trí bấm ổn định khi có rung và báo đúng hàng, tầng của địch sắp đến.
+- Mô phỏng thắng đủ 10 nhiệm vụ, kiểm tra cảnh báo tàu xả độc đúng lúc xuất hiện và ghi nguồn ảnh trong [hướng dẫn chiến dịch](campaign.md).
+- Kiểm tra trong Game view của Unity 6.3 trên hồ sơ thử riêng. Dùng bàn phím mô phỏng để vào màn 01, đặt đồng minh, lướt, tạm dừng, thắng và mở màn 02. Xác nhận lặn/nổi giữ đúng ô, Vịt dưới đáy mất ôxy và cả 110 tâm ô khớp với vùng bấm.
+
+## 21/11/2026 — Đồ họa pixel và chuyển tầng
+
+- Thay hướng ảnh tả thực bằng pixel art. Tự vẽ Bio-Bot, bốn đồng minh đầu chiến dịch, một nhóm đối thủ, tàu xả độc và bốn loại rác. Phần chìm của sprite trên mặt nước bị cắt, nhuộm và lệch nhẹ theo dòng. Tầng đáy dùng bọt, caustic và bóng có độ lệch theo độ cao.
+- Q chuyển qua lại giữa hai tầng trong chiến dịch. Tầng còn lại chỉ còn bóng mờ. Bỏ dự báo hàng địch và báo xuất hiện, thay bằng tín hiệu qua nửa đường với thời gian chờ riêng 10 giây ở mỗi tầng.
+- Kiểm tra 17 tình huống trong Unity Play Mode, gồm cả hai góc nhìn, Q bật/tắt và thời gian chờ cảnh báo. Mô phỏng riêng hoàn tất cả 10 nhiệm vụ.
+
+## 21/11/2026 — Cân bằng năng lượng và tương tác rác
+
+- Hạ hạt của Rái Cá xuống 20 NL mỗi 10,5 giây. Hạt tự nhiên cho 15 NL mỗi 18 giây sau lần đầu. Giảm thưởng năng lượng từ đợt, địch và một số loại rác. Mô phỏng vẫn thắng cả 10 nhiệm vụ.
+- Giữ F tại ô rác để thu gom hoặc cắt cước. Thanh gần Bio-Bot báo tiến độ và đặt lại khi nhả phím hay rời ô. Chạm Chai Phao vẫn đẩy chai ngay.
+- Tầng ở xa dùng ảnh khung cảnh đã làm nhòe và khúc xạ. Đáy tối hơn khi nhìn từ trên, mặt nước sáng hơn và méo mạnh hơn khi nhìn từ dưới.
+- Unity Play Mode xác nhận giữ F hiển thị thanh tiến độ và thả cá tại chỗ. Kiểm tra hủy khi nhả F, đổi ô hoặc mở menu, đẩy chai khi va chạm và giá trị từng loại hạt.
+
+## 21/11/2026 — Ba màn đầu và HUD gọn
+
+- Giới hạn chiến dịch ở ba màn và giới hạn Sinh Tồn Vô Tận vào nhóm địch, đồng minh và rác của ba màn. Bỏ Bạch Tuộc. Bổ sung địch tầng đáy, đặt một tua-bin ở hàng giữa đáy biển, chỉnh thông số Rùa Khiên, Cá Xạ Thủ, Túi Chộp và Mạt Cào.
+- Vẽ lại Bè Hai Mạn và cho bè khựng rồi lặn. Vẽ sprite cho đạn và khiên. Mỗi phát thứ ba của Cá Xạ Thủ tích lực, đẩy lùi và làm choáng. Hai khiên rác có hiệu ứng dựng và nhãn HP.
+- Bỏ xung của Bio-Bot và cơ chế độ trong. Bỏ bảng phải, nới bàn, chuyển máu đê xuống thanh dưới. Bio-Bot trầy và tóe tia khi bị thương. Giữ F trong 2,5 giây để dọn rác thường.
+- Kiểm tra 16 tình huống trong Unity. Mô phỏng có phòng thủ qua cả ba màn, với lần lượt 10, 6 và 3 HP đê. Mô phỏng để yên còn 10, 5 và 3 HP đê.

@@ -82,6 +82,8 @@ namespace BioBot
 
         private void Update()
         {
+            if (CampaignHud) return;
+
             Keyboard keyboard = Keyboard.current;
             if (!transitioning && keyboard != null)
             {

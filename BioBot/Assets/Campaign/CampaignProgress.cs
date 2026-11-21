@@ -40,6 +40,10 @@ namespace BioBot
                 Upgrades = Resize(Upgrades, CampaignCatalog.Upgrades.Length);
             if (Achievements == null || Achievements.Length != CampaignCatalog.Achievements.Length)
                 Achievements = ResizeBool(Achievements, CampaignCatalog.Achievements.Length);
+            for (int i = 0; i < Stars.Length; i++)
+                Stars[i] = Mathf.Clamp(Stars[i], 0, 3);
+            for (int i = 0; i < Upgrades.Length; i++)
+                Upgrades[i] = Mathf.Clamp(Upgrades[i], 0, CampaignCatalog.Upgrades[i].MaxLevel);
         }
 
         public void Save()
@@ -54,7 +58,7 @@ namespace BioBot
 
         public bool BuyUpgrade(int index)
         {
-            if (index < 0 || index >= CampaignCatalog.Upgrades.Length) return false;
+            if (index < 0 || index >= CampaignCatalog.Upgrades.Length || index == CampaignCatalog.RetiredPulseUpgrade) return false;
             var spec = CampaignCatalog.Upgrades[index];
             int lv = Upgrades[index];
             if (lv >= spec.MaxLevel) return false;
@@ -87,14 +91,15 @@ namespace BioBot
         public int TotalStars()
         {
             int sum = 0;
-            for (int i = 0; i < Stars.Length; i++) sum += Stars[i];
+            for (int i = 0; i < CampaignCatalog.PlayableStageCount; i++) sum += Stars[i];
             return sum;
         }
 
         public int TotalAchievements()
         {
             int sum = 0;
-            for (int i = 0; i < Achievements.Length; i++) if (Achievements[i]) sum++;
+            foreach (int id in CampaignCatalog.PlayableAchievementIds)
+                if (Achievements[id]) sum++;
             return sum;
         }
 
