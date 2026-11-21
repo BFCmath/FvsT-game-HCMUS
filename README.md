@@ -1,36 +1,97 @@
 # Bio-Bot: Đê Xanh Cảm Tử
 
-Game phòng thủ theo làn bằng Unity. Người chơi điều khiển Bio-Bot bảo vệ bờ đê trên hai bàn 5 × 11 hiển thị đồng thời. Robot thu gom rác, cứu cá và đặt đồng minh. Một số đồng minh và thiết bị hỗ trợ ô tương ứng ở tầng kia.
+## Tổng quan và trạng thái chiến dịch
 
-## Trạng thái
+Bio-Bot là game phòng thủ theo làn kiểu Plants vs. Zombies trên hai tầng nước, mỗi tầng có **5 hàng × 11 cột**. Người chơi bơi giữa mặt nước và đáy biển để bảo vệ bờ đê, thu gom rác, cứu cá và bố trí đồng minh.
 
-- Đã đọc đề và thống nhất hướng gameplay hai tầng cùng Bio-Bot có máu riêng.
-- Unity Hub và Unity 6.3 LTS `6000.3.16f1` bản ARM64 đã được cài trên Mac Apple Silicon. Đây là phiên bản lớp yêu cầu.
-- Giấy phép Unity Personal đang hoạt động. Đã chấp nhận Unity Editor Software Terms và xác nhận giao diện Editor mở được project tạm.
-- [BioBot](BioBot/) là project Unity tạo từ mẫu Universal 2D. Scene [A1Nursery](BioBot/Assets/Scenes/A1Nursery.unity) có hai bàn 5 × 9, Bio-Bot, chai nổi và cảnh vật chuyển động.
-- Mở **BioBot** bằng `6000.3.16f1`, chọn `Assets/Scenes/A1Nursery.unity` và bấm **Play**. Nhấp vào tab Game để nhận phím, dùng `WASD` hoặc phím mũi tên để đi cùng tầng. Từ điểm xuất phát, đi phải để đẩy chai, bấm `Q` để lặn và `E` để nổi.
-- Bản chơi thử A1 đã qua kiểm tra Play Mode. Video nộp bài của nhóm 04 đã sẵn sàng. [Nhom04-A1.mp4](Nhom04-A1.mp4)
+| Màn | Trọng tâm |
+| --- | --- |
+| 1 · Bến Gom Nắng Mai | Dùng **Rái Cá** tạo năng lượng và **Vịt Bắn Bọt** giữ làn. **Can Đội Nắp** xuất hiện ở đợt cuối. |
+| 2 · Bức Tường & Đáy Sâu | Mở tầng đáy và dùng **Rùa Khiên** chặn địch. |
+| 3 · Cá Xạ Thủ Đáy Biển | Cứu **Cá Xạ Thủ** và phòng thủ cả hai tầng. |
+| 4 · Hải Lưu Đổi Tầng | Dùng **Mực Kéo Tầng** chuyển địch sang tầng kia. **Súng Rác** bắn Rác Cản vào ô trống. |
 
-## Chơi chiến dịch
+Cả bốn màn đều chơi được và mở khóa tuần tự. Màn 1 có hai đợt trên mặt nước. Màn 2–4 có ba đợt, với cả hai tầng hoạt động song song. [Chi tiết chiến dịch](docs/campaign.md)
 
-Mở scene `BioBotCampaign` trong Unity 6.3 LTS và bấm **Play**. Chọn nhiệm vụ, xem chỉ dẫn rồi bấm **Triển khai**. Chiến dịch có 4 nhiệm vụ. Màn 01 có 2 đợt và thường mất khoảng 1 phút 20 giây. Các màn 02–04 có 3 đợt, với màn cuối mất khoảng 3 phút 10 giây. Mỗi tầng có 5 hàng × 11 cột. Từ màn 02, cả hai tầng hoạt động song song. [Scene BioBotCampaign](BioBot/Assets/Scenes/BioBotCampaign.unity)
+## Bắt đầu nhanh cho đồng đội
 
-Dùng **WASD** hoặc phím mũi tên để bơi, **Q** để chuyển qua lại giữa mặt nước và đáy biển. Chọn thẻ bằng chuột hoặc **1–5**, đặt bằng chuột hoặc **Space**. Bơi tới ô rác và **giữ F** để dựng khiên, thu gom, thả cá hoặc dọn Rác Cản. Chạm vào Chai Phao để đẩy.
+1. Clone repo và vào thư mục vừa tải.
 
-Cả bàn của tầng bị đe dọa sáng đỏ với tam giác **Nguy Hiểm** khi địch đầu tiên xuất hiện ở tầng kia hoặc khi địch vượt qua 5 cột ngoài cùng bên phải. Cảnh báo hiện trong 4 giây. Làm theo nhắc phím dưới tam giác để bấm **Q**, chuyển tầng và tắt cảnh báo ngay.
+   ```sh
+   git clone https://github.com/BFCmath/FvsT-game-HCMUS.git
+   cd FvsT-game-HCMUS
+   ```
 
-**Rái Cá** tạo hạt +20 năng lượng mỗi 14 giây. Hạt tự nhiên cho +15 năng lượng mỗi 24 giây sau hạt đầu ở giây 13. **Can Đội Nắp** xuất hiện từ đợt cuối màn 01. Dồn hai Vịt cùng hàng, đẩy Chai Phao vào địch hoặc dùng **Rùa Khiên** để cầm chân từ màn 02. Rùa Khiên chỉ hấp thụ sát thương. [Cách chơi, các nhiệm vụ và đồ họa pixel](docs/campaign.md)
+2. Cài **Unity Hub** và **Unity 6.3 LTS (`6000.3.16f1`)**. Đây là bản chính xác lớp yêu cầu. [ProjectVersion.txt](BioBot/ProjectSettings/ProjectVersion.txt)
+3. Trong Unity Hub, chọn **Add** và trỏ đến thư mục [BioBot/](BioBot/). Mở project bằng Editor vừa cài và đợi Unity import xong.
+4. Trong cửa sổ **Project**, mở [BioBotCampaign.unity](BioBot/Assets/Scenes/BioBotCampaign.unity) từ `Assets/Scenes/`. Bấm **Play**, nhấp vào **Game View** để nhận phím, rồi chọn màn và bấm **Triển khai**.
 
-Thắng màn 03 để mở màn 04 và thẻ **Mực Kéo Tầng**. Mực là bẫy dùng một lần để đổi tầng địch. **Súng Rác** bắn **Rác Cản** vào ô trống trên tầng đang bơi. Giữ **F** trong 0,5 giây để mở lại ô.
+### Điều khiển chiến dịch
 
-## Tiếp tục ở phiên sau
+| Phím hoặc thao tác | Tác dụng |
+| --- | --- |
+| `WASD` hoặc phím mũi tên | Bơi trong tầng hiện tại. |
+| `Q` | Lặn hoặc nổi tại cùng ô khi tầng đáy đã mở. |
+| `1`–`5` hoặc nhấp vào thẻ | Chọn đồng minh đã mở khóa. |
+| Nhấp trái hoặc `Space` | Đặt đồng minh ở ô vừa nhấp hoặc ô Bio-Bot đang đứng. |
+| Giữ `F` tại ô rác | Thu gom, dựng khiên, thả cá hoặc dọn Rác Cản tùy loại rác. |
+| Bơi chạm **Chai Phao** | Đẩy chai về bến trái để lấy năng lượng hoặc sang phải để húc địch. |
+| `Shift` | Lướt theo hướng đang nhìn. |
+| `V` | Bật hoặc tắt chế độ gỡ đồng minh. Nhấp trái hoặc bấm `Space` để gỡ. |
+| `P` | Bật hoặc tắt AI hỗ trợ ở tầng hiện tại. |
+| `Esc` | Tạm dừng, tiếp tục hoặc đóng cửa sổ đang mở. |
+
+**Bản A1** dùng scene [A1Nursery.unity](BioBot/Assets/Scenes/A1Nursery.unity) với bàn 5 × 9 mỗi tầng, `Q` để lặn và `E` để nổi. [Video A1 của nhóm 04](Nhom04-A1.mp4)
+
+## Hướng dẫn cho AI Agents
+
+### Đường dẫn và cách chạy
+
+| Thành phần | Đường dẫn tính từ gốc repo |
+| --- | --- |
+| Project Unity | [`BioBot/`](BioBot/) |
+| Scene chiến dịch | [`BioBot/Assets/Scenes/BioBotCampaign.unity`](BioBot/Assets/Scenes/BioBotCampaign.unity) |
+| Scene A1 | [`BioBot/Assets/Scenes/A1Nursery.unity`](BioBot/Assets/Scenes/A1Nursery.unity) |
+
+Chạy từ gốc repo. Các lệnh dùng đường dẫn cài đặt mặc định của Unity Hub.
+
+**macOS**
+
+```sh
+/Applications/Unity/Hub/Editor/6000.3.16f1/Unity.app/Contents/MacOS/Unity -projectPath "$PWD/BioBot"
+```
+
+**Windows (PowerShell)**
+
+```powershell
+& 'C:\Program Files\Unity\Hub\Editor\6000.3.16f1\Editor\Unity.exe' -projectPath (Join-Path (Get-Location) 'BioBot')
+```
+
+Trong Editor, mở scene chiến dịch, bấm **Play** và nhấp vào **Game View** trước khi gửi phím `WASD`, `Q`, `1`–`5`, `Space` hoặc `F`. Kiểm tra màn 1 nhận phím di chuyển và đặt được đồng minh. Từ màn 2, kiểm tra `Q` đổi tầng. Ở màn 4, thử giữ `F` để dọn Rác Cản do Súng Rác tạo ra.
+
+**Mô phỏng headless.** `CampaignMatch` là logic C# độc lập với scene và vòng đời `MonoBehaviour`. Để kiểm tra luật và cân bằng ngoài Editor, biên dịch harness cùng `CampaignMatch.cs`, `CampaignCatalog.cs` và `CampaignProgress.cs` bằng Roslyn đi kèm Unity (`dotnet csc.dll`), nhắm các assembly tương thích Mono, rồi chạy harness bằng `mono`. Harness có thể dùng stub cho API `UnityEngine` mà mã gọi, như `Mathf`, các kiểu vector và API lưu tiến độ. Khởi tạo match theo màn, gọi `Tick` với bước thời gian cố định và kiểm tra kết quả.
+
+### Bản đồ mã nguồn
+
+| Tệp | Trách nhiệm |
+| --- | --- |
+| [`CampaignCatalog.cs`](BioBot/Assets/Campaign/CampaignCatalog.cs) | Nguồn chuẩn cho cấu hình màn, các đợt `WaveSpec` và từng tốp địch, đồng minh, địch và rác. |
+| [`CampaignMatch.cs`](BioBot/Assets/Campaign/CampaignMatch.cs) | Mô phỏng và luật chơi bằng C#. |
+| [`BioBotCampaign.cs`](BioBot/Assets/Campaign/BioBotCampaign.cs) và [`BioBotCampaignPresentation.cs`](BioBot/Assets/Campaign/BioBotCampaignPresentation.cs) | Tích hợp Unity, xử lý input, HUD và render. |
+| [`build_campaign_pixels.py`](BioBot/ArtSource/build_campaign_pixels.py) | Script Pillow tạo `TidalRoster.png` và `TidalSilhouettes.png`. |
+
+### Quy tắc khi sửa chiến dịch
+
+- Đặt khác biệt giữa các màn trong cấu hình `CampaignCatalog.cs`. Không thêm nhánh `if (Level == ...)` để ghi đè luật riêng cho từng màn.
+- Khi đổi dữ liệu hoặc luật chơi, đồng bộ `CampaignCatalog.cs`, **Sổ Sinh Thái** trong game và [`docs/campaign.md`](docs/campaign.md).
+- Khi tiếp tục công việc, đọc [PLAN.md](PLAN.md) và mục mới nhất trong [nhật ký dự án](docs/project-log.md).
+
+## Tài liệu dự án
 
 | Tệp | Nội dung |
 | --- | --- |
-| [PLAN.md](PLAN.md) | Việc đã làm, việc tiếp theo và điều kiện hoàn thành từng mốc. |
-| [Yêu cầu bài tập](docs/requirements.md) | Yêu cầu A1, tình trạng A2 và tiêu chí giữa kỳ, kèm nguồn. |
-| [Thiết kế gameplay](docs/game-design.md) | Cách hiểu hiện tại, tình huống chơi và các lựa chọn cần chốt. |
-| [Chiến dịch](docs/campaign.md) | Cách chơi bốn màn, mở khóa và vai trò của rác. |
-| [Nhật ký dự án](docs/project-log.md) | Ghi nhận theo phiên và các quyết định cần giữ khi tiếp tục. |
-
-Khi tiếp tục, đọc `PLAN.md` và mục mới nhất trong nhật ký trước. Cập nhật trạng thái, các quyết định đã chốt và việc tiếp theo ngay trong phiên có thay đổi.
+| [PLAN.md](PLAN.md) | Tiến độ, việc tiếp theo và tiêu chí hoàn thành. |
+| [Yêu cầu bài tập](docs/requirements.md) | Yêu cầu A1, A2 và tiêu chí giữa kỳ. |
+| [Thiết kế gameplay](docs/game-design.md) | Cơ chế chơi và các lựa chọn thiết kế. |
+| [Chiến dịch](docs/campaign.md) | Các màn, đợt địch, mở khóa và đồ họa pixel. |
+| [Nhật ký dự án](docs/project-log.md) | Quyết định và ghi nhận theo phiên. |
