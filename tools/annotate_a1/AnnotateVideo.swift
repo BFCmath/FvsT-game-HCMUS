@@ -62,89 +62,102 @@ private func solidLayer(_ frame: CGRect, color fill: UInt32) -> CALayer {
     return layer
 }
 
-private func textLayer(
+private func captionLine(
     _ text: String, size: CGFloat, weight: NSFont.Weight, color ink: UInt32, width: CGFloat
-) -> CATextLayer {
-    func attributedText(at fontSize: CGFloat) -> NSAttributedString {
-        NSAttributedString(string: text, attributes: [
+) -> CTLine? {
+    func makeLine(_ text: String, at fontSize: CGFloat) -> CTLine {
+        CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [
             NSAttributedString.Key(kCTFontAttributeName as String): NSFont.systemFont(ofSize: fontSize, weight: weight),
             NSAttributedString.Key(kCTForegroundColorAttributeName as String): color(ink)
-        ])
+        ]))
     }
 
     var fontSize = size
-    var attributed = attributedText(at: size)
-    var line = CTLineCreateWithAttributedString(attributed)
-    var lineWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+    var line = makeLine(text, at: fontSize)
+    let availableWidth = width - 4
+    guard availableWidth > 0 else { return nil }
     // Keep each row single-line, including on narrower recordings.
-    while ceil(lineWidth) + 4 > width && fontSize > 11 {
+    while CTLineGetTypographicBounds(line, nil, nil, nil) > availableWidth && fontSize > 11 {
         fontSize -= 1
-        attributed = attributedText(at: fontSize)
-        line = CTLineCreateWithAttributedString(attributed)
-        lineWidth = CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil))
+        line = makeLine(text, at: fontSize)
     }
-
-    var ascent: CGFloat = 0
-    var descent: CGFloat = 0
-    var leading: CGFloat = 0
-    _ = CTLineGetTypographicBounds(line, &ascent, &descent, &leading)
-
-    let layer = CATextLayer()
-    layer.string = attributed
-    layer.contentsScale = 2
-    layer.truncationMode = .end
-    layer.bounds.size = CGSize(
-        width: min(ceil(lineWidth) + 4, width),
-        height: ceil(ascent + descent + max(0, leading)) + 2
-    )
-    return layer
+    if CTLineGetTypographicBounds(line, nil, nil, nil) > availableWidth {
+        return CTLineCreateTruncatedLine(line, availableWidth, .end, makeLine("…", at: fontSize))
+    }
+    return line
 }
 
-private func captionStrip(width: CGFloat, duration: Double, captions: [Caption]) -> CALayer {
+private func drawLine(_ line: CTLine, in context: CGContext, x: CGFloat, centerY: CGFloat) {
+    var ascent: CGFloat = 0
+    var descent: CGFloat = 0
+    _ = CTLineGetTypographicBounds(line, &ascent, &descent, nil)
+    context.textPosition = CGPoint(x: x, y: round(centerY - (ascent - descent) / 2))
+    CTLineDraw(line, context)
+}
+
+private func captionImage(_ caption: Caption, width: CGFloat) throws -> CGImage {
+    guard let context = CGContext(
+        data: nil, width: Int(width), height: Int(stripHeight), bitsPerComponent: 8, bytesPerRow: 0,
+        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        throw AnnotationError("Could not create the caption bitmap context.")
+    }
+    context.clear(CGRect(x: 0, y: 0, width: width, height: stripHeight))
+    context.setAllowsAntialiasing(true)
+    context.setShouldAntialias(true)
+    context.setShouldSmoothFonts(false)
+    context.textMatrix = .identity
+
+    let inset = min(26, floor(width * 0.04))
+    let tag = captionLine(caption.tag, size: 19, weight: .semibold, color: 0xF8D68F, width: width * 0.2)
+    let tagWidth = tag.map { CTLineGetTypographicBounds($0, nil, nil, nil) } ?? 0
+    let badge = CGRect(x: inset, y: 52, width: ceil(tagWidth) + 24, height: 30)
+    context.setFillColor(color(0x2E302A))
+    context.addPath(CGPath(roundedRect: badge, cornerWidth: 6, cornerHeight: 6, transform: nil))
+    context.fillPath()
+    if let tag {
+        drawLine(tag, in: context, x: badge.midX - tagWidth / 2, centerY: badge.midY)
+    }
+
+    let titleX = badge.maxX + 14
+    if let title = captionLine(caption.title, size: 28, weight: .bold, color: 0xF2F7FA, width: width - titleX - inset) {
+        drawLine(title, in: context, x: titleX, centerY: badge.midY)
+    }
+    if let subtitle = captionLine(caption.subtitle, size: 23, weight: .regular, color: 0xCADBE4, width: width - inset * 2) {
+        drawLine(subtitle, in: context, x: inset, centerY: 31)
+    }
+
+    guard let image = context.makeImage() else {
+        throw AnnotationError("Could not create the caption image.")
+    }
+    return image
+}
+
+private func captionStrip(width: CGFloat, duration: Double, captions: [Caption]) throws -> CALayer {
     let strip = solidLayer(CGRect(x: 0, y: 0, width: width, height: stripHeight), color: 0x101D28)
     strip.masksToBounds = true
     strip.addSublayer(solidLayer(CGRect(x: 0, y: stripHeight - 2, width: width, height: 2), color: 0x3F998E))
     strip.addSublayer(solidLayer(CGRect(x: 0, y: stripHeight - 2, width: min(72, width), height: 2), color: 0xE3BA68))
 
-    let inset = min(26, floor(width * 0.04))
     for caption in captions where caption.start < duration {
         let phase = CALayer()
         phase.frame = strip.bounds
         phase.opacity = caption.start == 0 ? 1 : 0
-
-        let tag = textLayer(caption.tag, size: 19, weight: .semibold, color: 0xF8D68F, width: width * 0.2)
-        let badge = solidLayer(
-            CGRect(x: inset, y: 52, width: ceil(tag.bounds.width) + 20, height: 30),
-            color: 0x2E302A
-        )
-        badge.cornerRadius = 6
-        tag.alignmentMode = .center
-        tag.position = CGPoint(x: badge.bounds.midX, y: badge.bounds.midY)
-        badge.addSublayer(tag)
-        phase.addSublayer(badge)
-
-        let titleX = badge.frame.maxX + 14
-        let title = textLayer(caption.title, size: 28, weight: .bold, color: 0xF2F7FA, width: width - titleX - inset)
-        title.frame.origin = CGPoint(x: titleX, y: floor(badge.frame.midY - title.bounds.height / 2))
-        phase.addSublayer(title)
-
-        let subtitle = textLayer(caption.subtitle, size: 23, weight: .regular, color: 0xCADBE4, width: width - inset * 2)
-        subtitle.frame.origin = CGPoint(x: inset, y: floor(31 - subtitle.bounds.height / 2))
-        phase.addSublayer(subtitle)
+        phase.contents = try captionImage(caption, width: width)
 
         // Discrete opacity changes put each phase on [start, end) in export time.
         var times: [NSNumber] = [0]
-        var opacities = [caption.start == 0 ? 1 : 0]
+        var opacities: [NSNumber] = [NSNumber(value: phase.opacity)]
         if caption.start > 0 {
             times.append(NSNumber(value: caption.start / duration))
-            opacities.append(1)
+            opacities.append(1.0)
         }
         if caption.end < duration {
             times.append(NSNumber(value: caption.end / duration))
-            opacities.append(0)
+            opacities.append(0.0)
         }
         times.append(1)
-        opacities.append(caption.end < duration ? 0 : 1)
+        opacities.append(caption.end < duration ? 0.0 : 1.0)
 
         let visibility = CAKeyframeAnimation(keyPath: "opacity")
         visibility.beginTime = AVCoreAnimationBeginTimeAtZero
@@ -230,7 +243,7 @@ private func annotate(input: URL, config: URL, output: URL) async throws {
     let renderedVideo = CALayer()
     renderedVideo.frame = canvas.bounds
     canvas.addSublayer(renderedVideo)
-    canvas.addSublayer(captionStrip(width: renderSize.width, duration: duration, captions: captions))
+    canvas.addSublayer(try captionStrip(width: renderSize.width, duration: duration, captions: captions))
 
     let videoComposition = AVMutableVideoComposition()
     videoComposition.instructions = [instruction]
